@@ -21,9 +21,11 @@ const genres = [
 
 const SearchPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const q = searchParams.get('q') || '';
   const [query, setQuery] = useState(q);
   const [results, setResults] = useState<ITunesTrack[]>([]);
+  const [albums, setAlbums] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const { playTrack, currentTrack, isPlaying } = usePlayerStore();
 
