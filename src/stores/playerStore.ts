@@ -142,7 +142,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         console.log('[Qaisify] Store: YT player ready');
       })
       .catch((err) => {
-        set({ ytStatus: 'init failed ❌' });
+        set({ _ytReady: false, ytStatus: 'init failed ❌', isLoadingAudio: false });
         console.error('[Qaisify] YT init failed:', err);
       });
     set({ _ytInitPromise: promise });
@@ -184,10 +184,16 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       });
     }
 
-    // Wait for YT init
+    // Wait for YT init (with timeout guard)
     if (!get()._ytReady && get()._ytInitPromise) {
       set({ ytStatus: 'waiting for init...' });
-      await get()._ytInitPromise;
+      await Promise.race([
+        get()._ytInitPromise,
+        new Promise<void>((resolve) => window.setTimeout(resolve, 13000)),
+      ]);
+      if (!get()._ytReady) {
+        set({ ytStatus: 'init timeout — using preview' });
+      }
     }
 
     const videoId = await searchYouTubeVideoId(track.trackName, track.artistName);
@@ -240,7 +246,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
     if (!s._ytReady && s._ytInitPromise) {
       set({ ytStatus: 'waiting for init (test)...' });
-      await s._ytInitPromise;
+      await Promise.race([
+        s._ytInitPromise,
+        new Promise<void>((resolve) => window.setTimeout(resolve, 13000)),
+      ]);
     }
 
     if (!get()._ytReady) {

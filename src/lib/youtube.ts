@@ -77,26 +77,62 @@ let errorCb: ((code: number) => void) | null = null;
 
 // Load the IFrame API script
 function loadYTApi(): Promise<void> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     if ((window as any).YT?.Player) {
       ytApiLoaded = true;
       resolve();
       return;
     }
 
-    const existing = (window as any).onYouTubeIframeAPIReady;
-    (window as any).onYouTubeIframeAPIReady = () => {
-      existing?.();
-      ytApiLoaded = true;
-      console.log('[Qaisify] ✅ YouTube IFrame API script loaded');
-      resolve();
+    let settled = false;
+    let checkInterval: number | null = null;
+
+    const finish = (ok: boolean, error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      if (checkInterval) clearInterval(checkInterval);
+      if (ok) {
+        ytApiLoaded = true;
+        resolve();
+      } else {
+        reject(error || new Error('YouTube IFrame API failed to initialize'));
+      }
     };
 
-    if (!document.querySelector('script[src*="youtube.com/iframe_api"]')) {
-      const tag = document.createElement('script');
-      tag.src = 'https://www.youtube.com/iframe_api';
-      document.head.appendChild(tag);
+    const timeoutId = window.setTimeout(() => {
+      finish(false, new Error('YouTube IFrame API load timeout'));
+    }, 12000);
+
+    const existing = (window as any).onYouTubeIframeAPIReady;
+    (window as any).onYouTubeIframeAPIReady = () => {
+      try {
+        existing?.();
+      } catch {}
+      console.log('[Qaisify] ✅ YouTube IFrame API script loaded');
+      finish(true);
+    };
+
+    // If callback already fired before we attached, detect readiness via polling
+    checkInterval = window.setInterval(() => {
+      if ((window as any).YT?.Player) {
+        console.log('[Qaisify] ✅ YouTube IFrame API detected from window.YT');
+        finish(true);
+      }
+    }, 100);
+
+    let script = document.querySelector('script[src*="youtube.com/iframe_api"]') as HTMLScriptElement | null;
+    if (!script) {
+      script = document.createElement('script');
+      script.src = 'https://www.youtube.com/iframe_api';
+      document.head.appendChild(script);
     }
+
+    script.addEventListener(
+      'error',
+      () => finish(false, new Error('Failed to load YouTube IFrame API script')),
+      { once: true }
+    );
   });
 }
 
@@ -108,16 +144,25 @@ function createPlayer(): Promise<void> {
       return;
     }
 
-    // Container — must be in viewport with real dimensions for audio to work
+    let settled = false;
+    const finish = (ok: boolean, error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      if (ok) resolve();
+      else reject(error || new Error('YT.Player creation failed'));
+    };
+
+    // Container — keep in viewport with real dimensions for audio autoplay policy
     let container = document.getElementById('yt-player-container');
     if (!container) {
       container = document.createElement('div');
       container.id = 'yt-player-container';
-      container.style.cssText =
-        'position:fixed;bottom:0;right:0;width:320px;height:180px;' +
-        'opacity:0.01;pointer-events:none;z-index:-1;';
       document.body.appendChild(container);
     }
+    container.style.cssText =
+      'position:fixed;bottom:0;right:0;width:320px;height:180px;' +
+      'opacity:0.01;pointer-events:none;z-index:-1;';
 
     // Player div
     let playerDiv = document.getElementById('yt-hidden-player');
@@ -127,10 +172,10 @@ function createPlayer(): Promise<void> {
       container.appendChild(playerDiv);
     }
 
-    const timeout = setTimeout(() => {
-      console.warn('[Qaisify] YT.Player creation timeout — continuing anyway');
-      resolve();
-    }, 30000);
+    const timeoutId = window.setTimeout(() => {
+      console.error('[Qaisify] YT.Player creation timeout');
+      finish(false, new Error('YT.Player creation timeout'));
+    }, 12000);
 
     try {
       ytPlayer = new (window as any).YT.Player('yt-hidden-player', {
@@ -150,9 +195,8 @@ function createPlayer(): Promise<void> {
         events: {
           onReady: () => {
             ytPlayerReady = true;
-            clearTimeout(timeout);
             console.log('[Qaisify] ✅ YT.Player ready — audio should work!');
-            resolve();
+            finish(true);
           },
           onStateChange: (e: any) => {
             console.log('[Qaisify] YT state:', e.data);
@@ -165,20 +209,15 @@ function createPlayer(): Promise<void> {
         },
       });
     } catch (err) {
-      clearTimeout(timeout);
       console.error('[Qaisify] YT.Player constructor error:', err);
-      reject(err);
+      finish(false, err instanceof Error ? err : new Error('YT.Player constructor error'));
     }
   });
 }
 
 export async function initYouTubePlayer(): Promise<void> {
-  try {
-    await loadYTApi();
-    await createPlayer();
-  } catch (err) {
-    console.error('[Qaisify] YouTube init error:', err);
-  }
+  await loadYTApi();
+  await createPlayer();
 }
 
 export function setYTCallbacks(callbacks: {
