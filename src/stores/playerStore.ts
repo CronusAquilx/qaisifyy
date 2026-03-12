@@ -184,10 +184,16 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       });
     }
 
-    // Wait for YT init
+    // Wait for YT init (with timeout guard)
     if (!get()._ytReady && get()._ytInitPromise) {
       set({ ytStatus: 'waiting for init...' });
-      await get()._ytInitPromise;
+      await Promise.race([
+        get()._ytInitPromise,
+        new Promise<void>((resolve) => window.setTimeout(resolve, 13000)),
+      ]);
+      if (!get()._ytReady) {
+        set({ ytStatus: 'init timeout — using preview' });
+      }
     }
 
     const videoId = await searchYouTubeVideoId(track.trackName, track.artistName);
