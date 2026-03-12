@@ -57,10 +57,9 @@ const YouTubeEmbed = () => {
         },
         onError: (event: any) => {
           console.error('[Qaisify] YouTube player error:', event.data);
-          // Fallback to next source
           const state = usePlayerStore.getState();
           if (state.currentTrack && state.playbackSource === 'youtube') {
-            state._fallbackFromYouTube();
+            state._fallbackFromYouTube(event.data);
           }
         },
       },
