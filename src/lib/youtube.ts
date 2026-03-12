@@ -26,12 +26,12 @@ export async function searchYouTubeCandidates(
   const cacheKey = `${trackName}::${artistName}`.toLowerCase().trim();
   if (videoCache.has(cacheKey)) return videoCache.get(cacheKey)!;
 
-  const query = `${artistName} ${trackName} official audio`;
+  const query = `${artistName} ${trackName}`;
 
   try {
     const url =
       `https://www.googleapis.com/youtube/v3/search` +
-      `?part=snippet&type=video&videoCategoryId=10&maxResults=8` +
+      `?part=snippet&type=video&videoCategoryId=10&maxResults=15` +
       `&videoEmbeddable=true&videoSyndicated=true` +
       `&q=${encodeURIComponent(query)}&key=${YOUTUBE_API_KEY}`;
 
