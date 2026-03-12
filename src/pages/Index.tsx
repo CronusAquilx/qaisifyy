@@ -36,6 +36,7 @@ const Index = () => {
   const [rows, setRows] = useState<Record<string, ITunesTrack[]>>({});
   const [loading, setLoading] = useState(true);
   const testYouTube = usePlayerStore((s) => s.testYouTube);
+  const ytStatus = usePlayerStore((s) => s.ytStatus);
   const ytKeyPreview = getYouTubeApiKeyPreview();
 
   useEffect(() => {
@@ -66,15 +67,19 @@ const Index = () => {
         {getGreeting()} ✨
       </h1>
 
+      {/* Debug card */}
       <div className="mb-6 flex items-center gap-2 flex-wrap">
         <div className="glass-elevated rounded-lg px-3 py-2 text-xs text-muted-foreground">
           YT Key: <span className="text-foreground font-medium">{ytKeyPreview}</span>
+        </div>
+        <div className="glass-elevated rounded-lg px-3 py-2 text-xs text-muted-foreground">
+          YT Status: <span className="text-foreground font-medium">{ytStatus}</span>
         </div>
         <button
           onClick={testYouTube}
           className="glass-button rounded-lg px-3 py-2 text-xs font-medium text-foreground transition-opacity hover:opacity-90"
         >
-          Test YouTube
+          🎵 Test YouTube (Rick Astley)
         </button>
       </div>
 

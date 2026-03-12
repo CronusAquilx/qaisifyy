@@ -12,6 +12,9 @@ import {
   ytSetVolume,
   ytMute,
   ytUnmute,
+  ytGetCurrentTime,
+  ytGetDuration,
+  YT_STATES,
 } from '@/lib/youtube';
 
 type RepeatMode = 'off' | 'all' | 'one';
@@ -31,15 +34,14 @@ interface PlayerState {
   isLoadingAudio: boolean;
   usingYouTube: boolean;
   playbackSource: PlaybackSource;
+  ytStatus: string;
 
-  // internal
   _audioEl: HTMLAudioElement | null;
   _usingYT: boolean;
   _ytReady: boolean;
   _ytInitPromise: Promise<void> | null;
   _intervalId: number | null;
 
-  // actions
   init: () => void;
   playTrack: (track: ITunesTrack, queue?: ITunesTrack[], index?: number) => void;
   testYouTube: () => void;
@@ -73,6 +75,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   isLoadingAudio: false,
   usingYouTube: false,
   playbackSource: 'none',
+  ytStatus: 'not initialized',
   _audioEl: null,
   _usingYT: false,
   _ytReady: false,
@@ -88,56 +91,66 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       set({ duration: audio.duration, isLoadingAudio: false });
     });
     audio.volume = get().volume;
-    set({ _audioEl: audio });
+    set({ _audioEl: audio, ytStatus: 'initializing...' });
 
     setYTCallbacks({
-      onReady: () => {
+      onStateChange: (state) => {
         const s = get();
         if (!s._usingYT) return;
 
-        const trackDuration = s.currentTrack?.trackTimeMillis
-          ? s.currentTrack.trackTimeMillis / 1000
-          : s.duration;
-
-        set({
-          usingYouTube: true,
-          playbackSource: 'youtube',
-          isPlaying: true,
-          isLoadingAudio: false,
-          duration: trackDuration || s.duration,
-        });
-
-        ytSetVolume(s.volume);
-        if (s.isMuted) ytMute();
-        else ytUnmute();
-        ytPlay();
-        s._startPolling();
+        if (state === YT_STATES.PLAYING) {
+          const ytDur = ytGetDuration();
+          set({
+            isPlaying: true,
+            isLoadingAudio: false,
+            duration: ytDur > 0 ? ytDur : s.duration,
+            ytStatus: 'playing',
+          });
+          s._startPolling();
+        } else if (state === YT_STATES.PAUSED) {
+          set({ isPlaying: false, ytStatus: 'paused' });
+          s._stopPolling();
+        } else if (state === YT_STATES.ENDED) {
+          set({ ytStatus: 'ended' });
+          s._handleTrackEnd();
+        } else if (state === YT_STATES.BUFFERING) {
+          set({ isLoadingAudio: true, ytStatus: 'buffering' });
+        } else if (state === YT_STATES.UNSTARTED) {
+          set({ ytStatus: 'unstarted' });
+        }
       },
-      onError: () => {
-        const s = get();
-        if (!s._usingYT) return;
-        console.error('[Qaisify] Hidden YouTube embed failed to load');
-        s._stopPolling();
-        set({
-          _usingYT: false,
-          usingYouTube: false,
-          playbackSource: 'none',
-          isLoadingAudio: false,
-          isPlaying: false,
-        });
+      onError: (code) => {
+        console.error('[Qaisify] YT error, falling back to preview. Code:', code);
+        const track = get().currentTrack;
+        set({ ytStatus: `error: ${code}` });
+        if (track?.previewUrl) {
+          const audio = get()._audioEl;
+          if (audio) {
+            set({ _usingYT: false, usingYouTube: false, playbackSource: 'preview' });
+            audio.src = track.previewUrl;
+            audio.play().catch(() => {});
+            set({ isPlaying: true, isLoadingAudio: false });
+            get()._startPolling();
+          }
+        }
       },
     });
 
     const promise = initYouTubePlayer()
-      .then(() => set({ _ytReady: true }))
-      .catch((err) => console.error('[Qaisify] YT init failed:', err));
+      .then(() => {
+        set({ _ytReady: true, ytStatus: 'ready ✅' });
+        console.log('[Qaisify] Store: YT player ready');
+      })
+      .catch((err) => {
+        set({ ytStatus: 'init failed ❌' });
+        console.error('[Qaisify] YT init failed:', err);
+      });
     set({ _ytInitPromise: promise });
   },
 
   playTrack: async (track, queue, index) => {
     const s = get();
 
-    // Stop current
     s._stopPolling();
     if (s._usingYT) ytStop();
     if (s._audioEl) {
@@ -162,7 +175,6 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       _usingYT: false,
     });
 
-    // Media session
     if ('mediaSession' in navigator) {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: track.trackName,
@@ -172,34 +184,37 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       });
     }
 
-    if (!s._ytReady && s._ytInitPromise) {
-      await s._ytInitPromise;
+    // Wait for YT init
+    if (!get()._ytReady && get()._ytInitPromise) {
+      set({ ytStatus: 'waiting for init...' });
+      await get()._ytInitPromise;
     }
 
     const videoId = await searchYouTubeVideoId(track.trackName, track.artistName);
 
-    if (videoId) {
-      set({ _usingYT: true, isLoadingAudio: true, currentTime: 0, duration: trackDuration });
+    if (videoId && get()._ytReady) {
+      set({ _usingYT: true, usingYouTube: true, playbackSource: 'youtube', ytStatus: 'loading video...' });
+      ytSetVolume(get().volume);
+      if (get().isMuted) ytMute();
+      else ytUnmute();
+
       const started = loadAndPlayYT(videoId);
       if (started) {
         // Pre-fetch next
         const q = get().queue;
         const qi = get().queueIndex;
         if (qi < q.length - 1) {
-          const next = q[qi + 1];
-          searchYouTubeVideoId(next.trackName, next.artistName).catch(() => {});
+          searchYouTubeVideoId(q[qi + 1].trackName, q[qi + 1].artistName).catch(() => {});
         }
         return;
       }
 
-      console.warn('[Qaisify] YouTube embed failed to start for found videoId');
-      set({ _usingYT: false, isLoadingAudio: false, isPlaying: false });
-      return;
+      set({ ytStatus: 'loadVideo failed' });
     }
 
-    // Fallback ONLY when no YouTube video is found
-    console.warn('[Qaisify] No YouTube videoId found, falling back to 30s iTunes preview');
-    set({ _usingYT: false, usingYouTube: false, playbackSource: 'preview' });
+    // Fallback to preview
+    console.warn('[Qaisify] Using 30s iTunes preview fallback');
+    set({ _usingYT: false, usingYouTube: false, playbackSource: 'preview', ytStatus: 'using preview' });
     const audio = get()._audioEl;
     if (audio && track.previewUrl) {
       audio.src = track.previewUrl;
@@ -224,7 +239,13 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     }
 
     if (!s._ytReady && s._ytInitPromise) {
+      set({ ytStatus: 'waiting for init (test)...' });
       await s._ytInitPromise;
+    }
+
+    if (!get()._ytReady) {
+      set({ ytStatus: 'YT not ready — cannot test' });
+      return;
     }
 
     set({
@@ -233,10 +254,15 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       duration: 213,
       isLoadingAudio: true,
       isPlaying: false,
-      usingYouTube: false,
-      playbackSource: 'none',
       _usingYT: true,
+      usingYouTube: true,
+      playbackSource: 'youtube',
+      ytStatus: 'test: loading dQw4w9WgXcQ...',
     });
+
+    ytSetVolume(get().volume);
+    if (get().isMuted) ytMute();
+    else ytUnmute();
 
     const started = loadAndPlayYT('dQw4w9WgXcQ');
     if (!started) {
@@ -246,6 +272,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         isPlaying: false,
         usingYouTube: false,
         playbackSource: 'none',
+        ytStatus: 'test: loadVideo failed ❌',
       });
     }
   },
@@ -259,13 +286,12 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       else s._audioEl?.pause();
       set({ isPlaying: false });
       s._stopPolling();
-      return;
+    } else {
+      if (s._usingYT) ytPlay();
+      else s._audioEl?.play().catch(() => {});
+      set({ isPlaying: true });
+      s._startPolling();
     }
-
-    if (s._usingYT) ytPlay();
-    else s._audioEl?.play().catch(() => {});
-    set({ isPlaying: true });
-    s._startPolling();
   },
 
   nextTrack: () => {
@@ -287,7 +313,6 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       set({ isPlaying: false, isLoadingAudio: false });
       return;
     }
-
     s.playTrack(queue[nextIndex], queue, nextIndex);
   },
 
@@ -297,29 +322,24 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       s.seekTo(0);
       return;
     }
-
     const { queue, queueIndex } = s;
     if (queue.length === 0) return;
-
     const prevIndex = queueIndex > 0 ? queueIndex - 1 : queue.length - 1;
     s.playTrack(queue[prevIndex], queue, prevIndex);
   },
 
   seekTo: (time) => {
     const s = get();
-    const clamped = Math.max(0, Math.min(time, s.duration || time));
-    if (s._usingYT) ytSeekTo(clamped);
-    else if (s._audioEl) s._audioEl.currentTime = clamped;
-    set({ currentTime: clamped });
+    if (s._usingYT) ytSeekTo(time);
+    else if (s._audioEl) s._audioEl.currentTime = time;
+    set({ currentTime: time });
   },
 
   setVolume: (v) => {
     const clamped = Math.max(0, Math.min(1, v));
     const s = get();
-
     if (s._usingYT) ytSetVolume(clamped);
     if (s._audioEl) s._audioEl.volume = clamped;
-
     localStorage.setItem('qaisify_volume', String(clamped));
     set({ volume: clamped, isMuted: clamped === 0 });
   },
@@ -327,12 +347,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   toggleMute: () => {
     const s = get();
     const newMuted = !s.isMuted;
-
-    if (s._usingYT) {
-      if (newMuted) ytMute();
-      else ytUnmute();
-    }
-
+    if (s._usingYT) newMuted ? ytMute() : ytUnmute();
     if (s._audioEl) s._audioEl.muted = newMuted;
     set({ isMuted: newMuted });
   },
@@ -351,41 +366,20 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   _startPolling: () => {
     const s = get();
     if (s._intervalId) return;
-
     const id = window.setInterval(() => {
       const st = get();
-
       if (st._usingYT) {
-        if (!st.isPlaying) return;
-
-        const duration = st.currentTrack?.trackTimeMillis
-          ? st.currentTrack.trackTimeMillis / 1000
-          : st.duration;
-
-        const nextTime = st.currentTime + 0.25;
-
-        if (duration > 0 && nextTime >= duration) {
-          set({ currentTime: duration });
-          st._stopPolling();
-          st._handleTrackEnd();
-          return;
-        }
-
         set({
-          currentTime: nextTime,
-          duration: duration || st.duration,
+          currentTime: ytGetCurrentTime(),
+          duration: ytGetDuration() || st.duration,
         });
-        return;
-      }
-
-      if (st._audioEl) {
+      } else if (st._audioEl) {
         set({
           currentTime: st._audioEl.currentTime,
           duration: st._audioEl.duration || st.duration,
         });
       }
     }, 250);
-
     set({ _intervalId: id });
   },
 
@@ -401,8 +395,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const s = get();
     if (s.repeat === 'one' && s.currentTrack) {
       s.playTrack(s.currentTrack, s.queue, s.queueIndex);
-      return;
+    } else {
+      s.nextTrack();
     }
-    s.nextTrack();
   },
 }));
