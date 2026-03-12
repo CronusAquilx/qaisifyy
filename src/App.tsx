@@ -12,6 +12,7 @@ import Sidebar from '@/components/layout/Sidebar';
 import TopBar from '@/components/layout/TopBar';
 import MobileNav from '@/components/layout/MobileNav';
 import PlayerBar from '@/components/player/PlayerBar';
+import MobilePlayerBar from '@/components/player/MobilePlayerBar';
 import FullscreenPlayer from '@/components/player/FullscreenPlayer';
 import RightPanel from '@/components/panels/RightPanel';
 import Index from "./pages/Index";
