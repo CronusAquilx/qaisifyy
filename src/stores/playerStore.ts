@@ -1,9 +1,10 @@
 import { create } from 'zustand';
 import type { ITunesTrack } from '@/lib/itunes';
 import { searchJamendo } from '@/lib/jamendo';
+import { searchYouTubeVideo } from '@/lib/youtube';
 
 type RepeatMode = 'off' | 'all' | 'one';
-type PlaybackSource = 'jamendo' | 'preview' | 'none';
+type PlaybackSource = 'youtube' | 'jamendo' | 'preview' | 'none';
 
 interface PlayerState {
   currentTrack: ITunesTrack | null;
@@ -20,6 +21,7 @@ interface PlayerState {
   playbackSource: PlaybackSource;
 
   _audioEl: HTMLAudioElement | null;
+  _ytPlayer: any | null;
   _intervalId: number | null;
 
   init: () => void;
@@ -35,9 +37,12 @@ interface PlayerState {
   addToQueue: (track: ITunesTrack) => void;
   removeFromQueue: (index: number) => void;
   clearQueue: () => void;
+  _setYTPlayer: (player: any) => void;
   _startPolling: () => void;
   _stopPolling: () => void;
   _handleTrackEnd: () => void;
+  _fallbackFromYouTube: () => void;
+  _playViaJamendoOrPreview: (track: ITunesTrack) => Promise<void>;
 }
 
 export const usePlayerStore = create<PlayerState>((set, get) => ({
@@ -54,6 +59,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   isLoadingAudio: false,
   playbackSource: 'none',
   _audioEl: null,
+  _ytPlayer: null,
   _intervalId: null,
 
   init: () => {
@@ -61,24 +67,37 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const audio = new Audio();
     audio.addEventListener('ended', () => get()._handleTrackEnd());
     audio.addEventListener('loadedmetadata', () => {
-      set({ duration: audio.duration, isLoadingAudio: false });
+      if (get().playbackSource !== 'youtube') {
+        set({ duration: audio.duration, isLoadingAudio: false });
+      }
     });
     audio.addEventListener('error', () => {
-      console.error('[Qaisify] Audio element error');
-      set({ isLoadingAudio: false });
+      if (get().playbackSource !== 'youtube') {
+        console.error('[Qaisify] Audio element error');
+        set({ isLoadingAudio: false });
+      }
     });
     audio.volume = get().volume;
     set({ _audioEl: audio });
   },
 
+  _setYTPlayer: (player) => set({ _ytPlayer: player }),
+
   playTrack: async (track, queue, index) => {
     const s = get();
     s._stopPolling();
 
+    // Stop audio element
     const audio = s._audioEl;
     if (audio) {
       audio.pause();
       audio.src = '';
+    }
+
+    // Stop YouTube if playing
+    const yt = s._ytPlayer;
+    if (yt?.stopVideo) {
+      try { yt.stopVideo(); } catch {}
     }
 
     const newQueue = queue || s.queue;
@@ -96,6 +115,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       playbackSource: 'none',
     });
 
+    // Media session
     if ('mediaSession' in navigator) {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: track.trackName,
@@ -105,9 +125,49 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       });
     }
 
-    // Try Jamendo first for full-length track
-    const jamendoTrack = await searchJamendo(track.trackName, track.artistName);
+    // 1. Try YouTube first
+    const videoId = await searchYouTubeVideo(track.trackName, track.artistName);
+    const ytPlayer = get()._ytPlayer;
 
+    if (videoId && ytPlayer?.loadVideoById) {
+      console.log(`[Qaisify] ▶ Playing via YouTube: ${videoId}`);
+      set({ playbackSource: 'youtube' });
+      try {
+        ytPlayer.loadVideoById(videoId);
+        ytPlayer.setVolume(get().volume * 100);
+        if (get().isMuted) ytPlayer.mute(); else ytPlayer.unMute();
+        set({ isPlaying: true, isLoadingAudio: false });
+        get()._startPolling();
+
+        // Pre-fetch next
+        const q = get().queue;
+        const qi = get().queueIndex;
+        if (qi < q.length - 1) {
+          searchYouTubeVideo(q[qi + 1].trackName, q[qi + 1].artistName).catch(() => {});
+        }
+        return;
+      } catch (err) {
+        console.error('[Qaisify] YouTube playback failed, falling back', err);
+      }
+    }
+
+    // 2. Fallback to Jamendo / iTunes preview
+    await get()._playViaJamendoOrPreview(track);
+  },
+
+  _fallbackFromYouTube: async () => {
+    const s = get();
+    if (!s.currentTrack) return;
+    console.warn('[Qaisify] YouTube failed, trying Jamendo/Preview fallback');
+    await s._playViaJamendoOrPreview(s.currentTrack);
+  },
+
+  _playViaJamendoOrPreview: async (track) => {
+    const s = get();
+    const audio = s._audioEl;
+
+    // Try Jamendo
+    const jamendoTrack = await searchJamendo(track.trackName, track.artistName);
     if (jamendoTrack?.audio && audio) {
       console.log(`[Qaisify] ▶ Playing full track via Jamendo: ${jamendoTrack.name}`);
       set({ playbackSource: 'jamendo' });
@@ -117,13 +177,6 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       audio.play().catch(() => {});
       set({ isPlaying: true, isLoadingAudio: false });
       get()._startPolling();
-
-      // Pre-fetch next
-      const q = get().queue;
-      const qi = get().queueIndex;
-      if (qi < q.length - 1) {
-        searchJamendo(q[qi + 1].trackName, q[qi + 1].artistName).catch(() => {});
-      }
       return;
     }
 
@@ -145,6 +198,20 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   togglePlay: () => {
     const s = get();
     if (!s.currentTrack) return;
+
+    if (s.playbackSource === 'youtube' && s._ytPlayer) {
+      if (s.isPlaying) {
+        s._ytPlayer.pauseVideo();
+        set({ isPlaying: false });
+        s._stopPolling();
+      } else {
+        s._ytPlayer.playVideo();
+        set({ isPlaying: true });
+        s._startPolling();
+      }
+      return;
+    }
+
     if (s.isPlaying) {
       s._audioEl?.pause();
       set({ isPlaying: false });
@@ -190,15 +257,22 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   seekTo: (time) => {
-    const audio = get()._audioEl;
-    if (audio) audio.currentTime = time;
+    const s = get();
+    if (s.playbackSource === 'youtube' && s._ytPlayer?.seekTo) {
+      s._ytPlayer.seekTo(time, true);
+    } else {
+      const audio = s._audioEl;
+      if (audio) audio.currentTime = time;
+    }
     set({ currentTime: time });
   },
 
   setVolume: (v) => {
     const clamped = Math.max(0, Math.min(1, v));
-    const audio = get()._audioEl;
+    const s = get();
+    const audio = s._audioEl;
     if (audio) audio.volume = clamped;
+    if (s._ytPlayer?.setVolume) s._ytPlayer.setVolume(clamped * 100);
     localStorage.setItem('qaisify_volume', String(clamped));
     set({ volume: clamped, isMuted: clamped === 0 });
   },
@@ -207,6 +281,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const s = get();
     const newMuted = !s.isMuted;
     if (s._audioEl) s._audioEl.muted = newMuted;
+    if (s._ytPlayer) {
+      if (newMuted) s._ytPlayer.mute?.(); else s._ytPlayer.unMute?.();
+    }
     set({ isMuted: newMuted });
   },
 
@@ -225,12 +302,20 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const s = get();
     if (s._intervalId) return;
     const id = window.setInterval(() => {
-      const audio = get()._audioEl;
-      if (audio) {
+      const state = get();
+      if (state.playbackSource === 'youtube' && state._ytPlayer?.getCurrentTime) {
         set({
-          currentTime: audio.currentTime,
-          duration: audio.duration || get().duration,
+          currentTime: state._ytPlayer.getCurrentTime() || 0,
+          duration: state._ytPlayer.getDuration() || state.duration,
         });
+      } else {
+        const audio = state._audioEl;
+        if (audio) {
+          set({
+            currentTime: audio.currentTime,
+            duration: audio.duration || state.duration,
+          });
+        }
       }
     }, 250);
     set({ _intervalId: id });
