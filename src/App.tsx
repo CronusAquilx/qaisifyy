@@ -45,7 +45,7 @@ const AppLayout = () => {
           className={`flex-1 overflow-y-auto pb-[150px] md:pb-[90px] transition-all duration-300 ${
             rightPanelOpen ? 'md:mr-[320px]' : ''
           }`}
-          style={{ marginLeft: typeof window !== 'undefined' && window.innerWidth >= 768 ? sidebarWidth : 0 }}
+          style={{ marginLeft: 0 }}
         >
           <TopBar />
           <Routes>
