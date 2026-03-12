@@ -1,10 +1,9 @@
 import { create } from 'zustand';
 import type { ITunesTrack } from '@/lib/itunes';
-import { searchJamendo } from '@/lib/jamendo';
-import { searchYouTubeVideo } from '@/lib/youtube';
+import { searchYouTubeCandidates } from '@/lib/youtube';
 
 type RepeatMode = 'off' | 'all' | 'one';
-type PlaybackSource = 'youtube' | 'jamendo' | 'preview' | 'none';
+type PlaybackSource = 'youtube' | 'none';
 
 interface PlayerState {
   currentTrack: ITunesTrack | null;
@@ -23,6 +22,8 @@ interface PlayerState {
   _audioEl: HTMLAudioElement | null;
   _ytPlayer: any | null;
   _intervalId: number | null;
+  _ytCandidates: string[];
+  _ytCandidateIndex: number;
 
   init: () => void;
   playTrack: (track: ITunesTrack, queue?: ITunesTrack[], index?: number) => void;
@@ -41,9 +42,10 @@ interface PlayerState {
   _startPolling: () => void;
   _stopPolling: () => void;
   _handleTrackEnd: () => void;
-  _fallbackFromYouTube: () => void;
-  _playViaJamendoOrPreview: (track: ITunesTrack) => Promise<void>;
+  _fallbackFromYouTube: (errorCode?: number) => Promise<void>;
 }
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const usePlayerStore = create<PlayerState>((set, get) => ({
   currentTrack: null,
@@ -61,20 +63,16 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   _audioEl: null,
   _ytPlayer: null,
   _intervalId: null,
+  _ytCandidates: [],
+  _ytCandidateIndex: -1,
 
   init: () => {
     if (get()._audioEl) return;
     const audio = new Audio();
-    audio.addEventListener('ended', () => get()._handleTrackEnd());
-    audio.addEventListener('loadedmetadata', () => {
+    audio.preload = 'none';
+    audio.addEventListener('ended', () => {
       if (get().playbackSource !== 'youtube') {
-        set({ duration: audio.duration, isLoadingAudio: false });
-      }
-    });
-    audio.addEventListener('error', () => {
-      if (get().playbackSource !== 'youtube') {
-        console.error('[Qaisify] Audio element error');
-        set({ isLoadingAudio: false });
+        get()._handleTrackEnd();
       }
     });
     audio.volume = get().volume;
@@ -87,17 +85,18 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const s = get();
     s._stopPolling();
 
-    // Stop audio element
     const audio = s._audioEl;
     if (audio) {
       audio.pause();
-      audio.src = '';
+      audio.removeAttribute('src');
+      audio.load();
     }
 
-    // Stop YouTube if playing
     const yt = s._ytPlayer;
     if (yt?.stopVideo) {
-      try { yt.stopVideo(); } catch {}
+      try {
+        yt.stopVideo();
+      } catch {}
     }
 
     const newQueue = queue || s.queue;
@@ -113,9 +112,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       isLoadingAudio: true,
       isPlaying: false,
       playbackSource: 'none',
+      _ytCandidates: [],
+      _ytCandidateIndex: -1,
     });
 
-    // Media session
     if ('mediaSession' in navigator) {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: track.trackName,
@@ -125,99 +125,109 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       });
     }
 
-    // 1. Try YouTube first
-    const videoId = await searchYouTubeVideo(track.trackName, track.artistName);
-    const ytPlayer = get()._ytPlayer;
-
-    if (videoId && ytPlayer?.loadVideoById) {
-      console.log(`[Qaisify] ▶ Playing via YouTube: ${videoId}`);
-      set({ playbackSource: 'youtube' });
-      try {
-        ytPlayer.loadVideoById(videoId);
-        ytPlayer.setVolume(get().volume * 100);
-        if (get().isMuted) ytPlayer.mute(); else ytPlayer.unMute();
-        set({ isPlaying: true, isLoadingAudio: false });
-        get()._startPolling();
-
-        // Pre-fetch next
-        const q = get().queue;
-        const qi = get().queueIndex;
-        if (qi < q.length - 1) {
-          searchYouTubeVideo(q[qi + 1].trackName, q[qi + 1].artistName).catch(() => {});
-        }
-        return;
-      } catch (err) {
-        console.error('[Qaisify] YouTube playback failed, falling back', err);
-      }
-    }
-
-    // 2. Fallback to Jamendo / iTunes preview
-    await get()._playViaJamendoOrPreview(track);
-  },
-
-  _fallbackFromYouTube: async () => {
-    const s = get();
-    if (!s.currentTrack) return;
-    console.warn('[Qaisify] YouTube failed, trying Jamendo/Preview fallback');
-    await s._playViaJamendoOrPreview(s.currentTrack);
-  },
-
-  _playViaJamendoOrPreview: async (track) => {
-    const s = get();
-    const audio = s._audioEl;
-
-    // Try Jamendo
-    const jamendoTrack = await searchJamendo(track.trackName, track.artistName);
-    if (jamendoTrack?.audio && audio) {
-      console.log(`[Qaisify] ▶ Playing full track via Jamendo: ${jamendoTrack.name}`);
-      set({ playbackSource: 'jamendo' });
-      audio.src = jamendoTrack.audio;
-      audio.volume = get().volume;
-      audio.muted = get().isMuted;
-      audio.play().catch(() => {});
-      set({ isPlaying: true, isLoadingAudio: false });
-      get()._startPolling();
+    const ytCandidates = await searchYouTubeCandidates(track.trackName, track.artistName);
+    if (ytCandidates.length === 0) {
+      console.error('[Qaisify] No embeddable YouTube video candidates found');
+      set({ isPlaying: false, isLoadingAudio: false, playbackSource: 'none' });
       return;
     }
 
-    // Fallback to iTunes 30s preview
-    console.warn('[Qaisify] Using 30s iTunes preview fallback');
-    set({ playbackSource: 'preview' });
-    if (audio && track.previewUrl) {
-      audio.src = track.previewUrl;
-      audio.volume = get().volume;
-      audio.muted = get().isMuted;
-      audio.play().catch(() => {});
-      set({ isPlaying: true, isLoadingAudio: false });
-      get()._startPolling();
-    } else {
-      set({ isLoadingAudio: false, isPlaying: false });
+    let ytPlayer = get()._ytPlayer;
+    if (!ytPlayer?.loadVideoById) {
+      for (let i = 0; i < 20; i++) {
+        await wait(100);
+        ytPlayer = get()._ytPlayer;
+        if (ytPlayer?.loadVideoById) break;
+      }
     }
+
+    if (!ytPlayer?.loadVideoById) {
+      console.error('[Qaisify] YouTube player not ready');
+      set({ isPlaying: false, isLoadingAudio: false, playbackSource: 'none' });
+      return;
+    }
+
+    const firstVideoId = ytCandidates[0];
+    console.log(`[Qaisify] ▶ Playing via YouTube: ${firstVideoId}`);
+
+    try {
+      ytPlayer.loadVideoById(firstVideoId);
+      ytPlayer.setVolume(get().volume * 100);
+      if (get().isMuted) ytPlayer.mute?.();
+      else ytPlayer.unMute?.();
+      ytPlayer.playVideo?.();
+
+      set({
+        playbackSource: 'youtube',
+        isPlaying: true,
+        isLoadingAudio: false,
+        _ytCandidates: ytCandidates,
+        _ytCandidateIndex: 0,
+      });
+
+      get()._startPolling();
+
+      const q = get().queue;
+      const qi = get().queueIndex;
+      if (qi < q.length - 1) {
+        searchYouTubeCandidates(q[qi + 1].trackName, q[qi + 1].artistName).catch(() => {});
+      }
+    } catch (err) {
+      console.error('[Qaisify] YouTube playback failed on first candidate', err);
+      await get()._fallbackFromYouTube();
+    }
+  },
+
+  _fallbackFromYouTube: async (errorCode) => {
+    const s = get();
+    if (!s.currentTrack || s.playbackSource !== 'youtube') return;
+
+    const nextIndex = s._ytCandidateIndex + 1;
+    const nextVideoId = s._ytCandidates[nextIndex];
+
+    if (nextVideoId && s._ytPlayer?.loadVideoById) {
+      console.warn(
+        `[Qaisify] YouTube error${typeof errorCode === 'number' ? ` (${errorCode})` : ''}, trying next candidate: ${nextVideoId}`
+      );
+
+      set({ _ytCandidateIndex: nextIndex, isLoadingAudio: true });
+      try {
+        s._ytPlayer.loadVideoById(nextVideoId);
+        s._ytPlayer.setVolume(get().volume * 100);
+        if (get().isMuted) s._ytPlayer.mute?.();
+        else s._ytPlayer.unMute?.();
+        s._ytPlayer.playVideo?.();
+        set({ isPlaying: true, isLoadingAudio: false });
+        get()._startPolling();
+        return;
+      } catch (err) {
+        console.error('[Qaisify] Next YouTube candidate failed', err);
+        await get()._fallbackFromYouTube(errorCode);
+        return;
+      }
+    }
+
+    console.error(
+      `[Qaisify] YouTube failed${typeof errorCode === 'number' ? ` (error ${errorCode})` : ''} and no more playable candidates`);
+    set({
+      isLoadingAudio: false,
+      isPlaying: false,
+      playbackSource: 'none',
+    });
+    get()._stopPolling();
   },
 
   togglePlay: () => {
     const s = get();
     if (!s.currentTrack) return;
-
-    if (s.playbackSource === 'youtube' && s._ytPlayer) {
-      if (s.isPlaying) {
-        s._ytPlayer.pauseVideo();
-        set({ isPlaying: false });
-        s._stopPolling();
-      } else {
-        s._ytPlayer.playVideo();
-        set({ isPlaying: true });
-        s._startPolling();
-      }
-      return;
-    }
+    if (s.playbackSource !== 'youtube' || !s._ytPlayer) return;
 
     if (s.isPlaying) {
-      s._audioEl?.pause();
+      s._ytPlayer.pauseVideo?.();
       set({ isPlaying: false });
       s._stopPolling();
     } else {
-      s._audioEl?.play().catch(() => {});
+      s._ytPlayer.playVideo?.();
       set({ isPlaying: true });
       s._startPolling();
     }
@@ -258,13 +268,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   seekTo: (time) => {
     const s = get();
-    if (s.playbackSource === 'youtube' && s._ytPlayer?.seekTo) {
+    if (s._ytPlayer?.seekTo) {
       s._ytPlayer.seekTo(time, true);
-    } else {
-      const audio = s._audioEl;
-      if (audio) audio.currentTime = time;
+      set({ currentTime: time });
     }
-    set({ currentTime: time });
   },
 
   setVolume: (v) => {
@@ -282,20 +289,23 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const newMuted = !s.isMuted;
     if (s._audioEl) s._audioEl.muted = newMuted;
     if (s._ytPlayer) {
-      if (newMuted) s._ytPlayer.mute?.(); else s._ytPlayer.unMute?.();
+      if (newMuted) s._ytPlayer.mute?.();
+      else s._ytPlayer.unMute?.();
     }
     set({ isMuted: newMuted });
   },
 
   toggleShuffle: () => set((s) => ({ shuffle: !s.shuffle })),
-  toggleRepeat: () => set((s) => ({
-    repeat: s.repeat === 'off' ? 'all' : s.repeat === 'all' ? 'one' : 'off',
-  })),
+  toggleRepeat: () =>
+    set((s) => ({
+      repeat: s.repeat === 'off' ? 'all' : s.repeat === 'all' ? 'one' : 'off',
+    })),
 
   addToQueue: (track) => set((s) => ({ queue: [...s.queue, track] })),
-  removeFromQueue: (index) => set((s) => ({
-    queue: s.queue.filter((_, i) => i !== index),
-  })),
+  removeFromQueue: (index) =>
+    set((s) => ({
+      queue: s.queue.filter((_, i) => i !== index),
+    })),
   clearQueue: () => set({ queue: [], queueIndex: -1 }),
 
   _startPolling: () => {
@@ -308,14 +318,6 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           currentTime: state._ytPlayer.getCurrentTime() || 0,
           duration: state._ytPlayer.getDuration() || state.duration,
         });
-      } else {
-        const audio = state._audioEl;
-        if (audio) {
-          set({
-            currentTime: audio.currentTime,
-            duration: audio.duration || state.duration,
-          });
-        }
       }
     }, 250);
     set({ _intervalId: id });
