@@ -170,20 +170,23 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const videoId = await searchYouTubeVideoId(track.trackName, track.artistName);
 
     if (videoId) {
-      set({ _usingYT: true, usingYouTube: true, playbackSource: 'youtube' });
       const vol = get().volume;
       ytSetVolume(vol);
       if (get().isMuted) ytMute();
-      loadAndPlayYT(videoId);
-
-      // Pre-fetch next
-      const q = get().queue;
-      const qi = get().queueIndex;
-      if (qi < q.length - 1) {
-        const next = q[qi + 1];
-        searchYouTubeVideoId(next.trackName, next.artistName).catch(() => {});
+      const started = loadAndPlayYT(videoId);
+      if (started) {
+        set({ _usingYT: true, usingYouTube: true, playbackSource: 'youtube' });
+        // Pre-fetch next
+        const q = get().queue;
+        const qi = get().queueIndex;
+        if (qi < q.length - 1) {
+          const next = q[qi + 1];
+          searchYouTubeVideoId(next.trackName, next.artistName).catch(() => {});
+        }
+        return;
       }
-      return;
+      // YT player not ready, fall through to preview
+      console.warn('[Qaisify] YT player not ready, using preview fallback');
     }
 
     // Fallback to preview
