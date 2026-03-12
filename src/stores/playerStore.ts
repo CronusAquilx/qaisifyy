@@ -246,7 +246,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
     if (!s._ytReady && s._ytInitPromise) {
       set({ ytStatus: 'waiting for init (test)...' });
-      await s._ytInitPromise;
+      await Promise.race([
+        s._ytInitPromise,
+        new Promise<void>((resolve) => window.setTimeout(resolve, 13000)),
+      ]);
     }
 
     if (!get()._ytReady) {
