@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { searchSongs, type ITunesTrack, upgradeArtwork, formatDuration } from '@/lib/itunes';
+import { useSearchParams, useNavigate } from 'react-router-dom';
+import { searchSongs, searchAlbums, type ITunesTrack, upgradeArtwork, formatDuration } from '@/lib/itunes';
 import { usePlayerStore } from '@/stores/playerStore';
 import { Play, Search } from 'lucide-react';
 
@@ -21,18 +21,24 @@ const genres = [
 
 const SearchPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const q = searchParams.get('q') || '';
   const [query, setQuery] = useState(q);
   const [results, setResults] = useState<ITunesTrack[]>([]);
+  const [albums, setAlbums] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const { playTrack, currentTrack, isPlaying } = usePlayerStore();
 
   useEffect(() => {
-    if (!q) { setResults([]); return; }
+    if (!q) { setResults([]); setAlbums([]); return; }
     setLoading(true);
     const timer = setTimeout(async () => {
-      const tracks = await searchSongs(q, 30);
+      const [tracks, albs] = await Promise.all([
+        searchSongs(q, 30),
+        searchAlbums(q, 6),
+      ]);
       setResults(tracks);
+      setAlbums(albs.filter((a: any) => a.collectionType === 'Album'));
       setLoading(false);
     }, 400);
     return () => clearTimeout(timer);
@@ -84,6 +90,26 @@ const SearchPage = () => {
         </div>
       )}
 
+      {/* Albums */}
+      {albums.length > 0 && (
+        <div className="mb-6">
+          <h2 className="text-xl font-bold mb-3" style={{ fontFamily: 'Syne' }}>Albums</h2>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {albums.slice(0, 6).map((album: any) => (
+              <button
+                key={album.collectionId}
+                onClick={() => navigate(`/album/${album.collectionId}`)}
+                className="glass rounded-xl p-3 text-left hover:bg-white/10 transition-all"
+              >
+                <img src={upgradeArtwork(album.artworkUrl100, 300)} alt="" className="w-full aspect-square rounded-lg object-cover mb-2" />
+                <p className="text-sm font-medium truncate">{album.collectionName}</p>
+                <p className="text-xs text-muted-foreground truncate">{album.artistName}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {results.length > 0 && (
         <div className="space-y-1">
           <h2 className="text-xl font-bold mb-3" style={{ fontFamily: 'Syne' }}>Songs</h2>
@@ -105,7 +131,12 @@ const SearchPage = () => {
                 </div>
                 <div className="flex-1 min-w-0 text-left">
                   <p className={`text-sm truncate ${isActive ? 'text-primary' : 'text-foreground'}`}>{track.trackName}</p>
-                  <p className="text-xs text-muted-foreground truncate">{track.artistName}</p>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); navigate(`/artist/${encodeURIComponent(track.artistName)}`); }}
+                    className="text-xs text-muted-foreground truncate hover:underline"
+                  >
+                    {track.artistName}
+                  </button>
                 </div>
                 <span className="text-xs text-muted-foreground">{formatDuration(track.trackTimeMillis)}</span>
               </button>
