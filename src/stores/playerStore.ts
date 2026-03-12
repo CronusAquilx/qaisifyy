@@ -142,7 +142,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         console.log('[Qaisify] Store: YT player ready');
       })
       .catch((err) => {
-        set({ ytStatus: 'init failed ❌' });
+        set({ _ytReady: false, ytStatus: 'init failed ❌', isLoadingAudio: false });
         console.error('[Qaisify] YT init failed:', err);
       });
     set({ _ytInitPromise: promise });
