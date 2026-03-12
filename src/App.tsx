@@ -63,7 +63,8 @@ const AppLayout = () => {
       <div className="hidden md:block">
         <PlayerBar />
       </div>
-      {/* Mobile bottom nav */}
+      {/* Mobile player + nav */}
+      <MobilePlayerBar />
       <MobileNav />
       {/* Full-screen player overlay */}
       <FullscreenPlayer />
