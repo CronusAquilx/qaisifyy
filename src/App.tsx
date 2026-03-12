@@ -26,6 +26,8 @@ const queryClient = new QueryClient();
 const AppLayout = () => {
   const init = usePlayerStore((s) => s.init);
   const rightPanelOpen = useUIStore((s) => s.rightPanelOpen);
+  const isSidebarCollapsed = useUIStore((s) => s.isSidebarCollapsed);
+  const sidebarWidth = isSidebarCollapsed ? 72 : 240;
 
   useEffect(() => {
     init();
