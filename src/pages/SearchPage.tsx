@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { searchSongs, type ITunesTrack, upgradeArtwork, formatDuration } from '@/lib/itunes';
+import { useSearchParams, useNavigate } from 'react-router-dom';
+import { searchSongs, searchAlbums, type ITunesTrack, upgradeArtwork, formatDuration } from '@/lib/itunes';
 import { usePlayerStore } from '@/stores/playerStore';
 import { Play, Search } from 'lucide-react';
 
