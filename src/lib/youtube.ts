@@ -9,12 +9,8 @@ try {
 
 function saveCache() {
   const obj: Record<string, string> = {};
-  vidCache.forEach((v, k) => {
-    obj[k] = v;
-  });
-  try {
-    localStorage.setItem('qaisify_vid_cache', JSON.stringify(obj));
-  } catch {}
+  vidCache.forEach((v, k) => { obj[k] = v; });
+  try { localStorage.setItem('qaisify_vid_cache', JSON.stringify(obj)); } catch {}
 }
 
 export function getYouTubeApiKeyPreview(): string {
@@ -37,9 +33,7 @@ export async function searchYouTubeVideoId(
   const queries = [
     `${artistName} ${trackName} official audio`,
     `${artistName} ${trackName} audio`,
-    `${artistName} ${trackName} official video`,
     `${artistName} ${trackName}`,
-    `${trackName} full song`,
   ];
 
   for (const query of queries) {
@@ -74,141 +68,154 @@ export async function searchYouTubeVideoId(
   return null;
 }
 
-type YTCallbacks = {
-  onReady?: () => void;
-  onError?: () => void;
-};
+// ── YouTube IFrame Player (YT.Player) ──────────────────────────────
+let ytPlayer: any = null;
+let ytPlayerReady = false;
+let ytApiLoaded = false;
+let stateChangeCb: ((state: number) => void) | null = null;
+let errorCb: ((code: number) => void) | null = null;
 
-let ytIframe: HTMLIFrameElement | null = null;
-let ytIframeReady = false;
-let pendingVideoId: string | null = null;
-let readyCb: (() => void) | null = null;
-let errorCb: (() => void) | null = null;
-
-function buildEmbedUrl(videoId: string): string {
-  const origin = encodeURIComponent(window.location.origin);
-  return `https://www.youtube.com/embed/${videoId}?autoplay=1&controls=0&playsinline=1&enablejsapi=1&origin=${origin}&rel=0&ts=${Date.now()}`;
-}
-
-function postCommand(func: string, args: unknown[] = []) {
-  if (!ytIframe?.contentWindow) return;
-  ytIframe.contentWindow.postMessage(
-    JSON.stringify({ event: 'command', func, args }),
-    '*'
-  );
-}
-
-function ensureHiddenIframe(): HTMLIFrameElement {
-  let container = document.getElementById('yt-player-container');
-  if (!container) {
-    container = document.createElement('div');
-    container.id = 'yt-player-container';
-    // Keep in viewport but invisible — browsers block audio on off-screen/tiny iframes
-    container.style.cssText =
-      'position:fixed;bottom:0;left:0;width:320px;height:180px;' +
-      'pointer-events:none;z-index:-1;opacity:0.01;';
-    document.body.appendChild(container);
-  }
-
-  const existing = document.getElementById('yt-hidden-embed') as HTMLIFrameElement | null;
-  if (existing) {
-    ytIframe = existing;
-    return existing;
-  }
-
-  const iframe = document.createElement('iframe');
-  iframe.id = 'yt-hidden-embed';
-  iframe.width = '320';
-  iframe.height = '180';
-  iframe.allow = 'autoplay; encrypted-media; picture-in-picture';
-  iframe.setAttribute('aria-hidden', 'true');
-  iframe.setAttribute('tabindex', '-1');
-  iframe.style.cssText = 'border:none;';
-  iframe.src = 'about:blank';
-
-  iframe.addEventListener('load', () => {
-    if (!pendingVideoId) return;
-    ytIframeReady = true;
-
-    // Give embed time to initialize, then nudge playback + volume
-    setTimeout(() => {
-      postCommand('playVideo');
-      postCommand('unMute');
-      readyCb?.();
-      pendingVideoId = null;
-    }, 500);
-  });
-
-  iframe.addEventListener('error', () => {
-    ytIframeReady = false;
-    errorCb?.();
-  });
-
-  container.appendChild(iframe);
-  ytIframe = iframe;
-  return iframe;
-}
-
-export function initYouTubePlayer(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    try {
-      ensureHiddenIframe();
+// Load the IFrame API script
+function loadYTApi(): Promise<void> {
+  return new Promise((resolve) => {
+    if ((window as any).YT?.Player) {
+      ytApiLoaded = true;
       resolve();
+      return;
+    }
+
+    const existing = (window as any).onYouTubeIframeAPIReady;
+    (window as any).onYouTubeIframeAPIReady = () => {
+      existing?.();
+      ytApiLoaded = true;
+      console.log('[Qaisify] ✅ YouTube IFrame API script loaded');
+      resolve();
+    };
+
+    if (!document.querySelector('script[src*="youtube.com/iframe_api"]')) {
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      document.head.appendChild(tag);
+    }
+  });
+}
+
+// Create the hidden player
+function createPlayer(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (ytPlayer && ytPlayerReady) {
+      resolve();
+      return;
+    }
+
+    // Container — must be in viewport with real dimensions for audio to work
+    let container = document.getElementById('yt-player-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'yt-player-container';
+      container.style.cssText =
+        'position:fixed;bottom:0;right:0;width:320px;height:180px;' +
+        'opacity:0.01;pointer-events:none;z-index:-1;';
+      document.body.appendChild(container);
+    }
+
+    // Player div
+    let playerDiv = document.getElementById('yt-hidden-player');
+    if (!playerDiv) {
+      playerDiv = document.createElement('div');
+      playerDiv.id = 'yt-hidden-player';
+      container.appendChild(playerDiv);
+    }
+
+    const timeout = setTimeout(() => {
+      console.warn('[Qaisify] YT.Player creation timeout — continuing anyway');
+      resolve();
+    }, 30000);
+
+    try {
+      ytPlayer = new (window as any).YT.Player('yt-hidden-player', {
+        height: '180',
+        width: '320',
+        videoId: '',
+        playerVars: {
+          autoplay: 0,
+          controls: 0,
+          disablekb: 1,
+          fs: 0,
+          modestbranding: 1,
+          playsinline: 1,
+          rel: 0,
+          origin: window.location.origin,
+        },
+        events: {
+          onReady: () => {
+            ytPlayerReady = true;
+            clearTimeout(timeout);
+            console.log('[Qaisify] ✅ YT.Player ready — audio should work!');
+            resolve();
+          },
+          onStateChange: (e: any) => {
+            console.log('[Qaisify] YT state:', e.data);
+            stateChangeCb?.(e.data);
+          },
+          onError: (e: any) => {
+            console.error('[Qaisify] YT player error code:', e.data);
+            errorCb?.(e.data);
+          },
+        },
+      });
     } catch (err) {
+      clearTimeout(timeout);
+      console.error('[Qaisify] YT.Player constructor error:', err);
       reject(err);
     }
   });
 }
 
-export function setYTCallbacks(callbacks: YTCallbacks) {
-  readyCb = callbacks.onReady || null;
+export async function initYouTubePlayer(): Promise<void> {
+  try {
+    await loadYTApi();
+    await createPlayer();
+  } catch (err) {
+    console.error('[Qaisify] YouTube init error:', err);
+  }
+}
+
+export function setYTCallbacks(callbacks: {
+  onStateChange?: (state: number) => void;
+  onError?: (code: number) => void;
+}) {
+  stateChangeCb = callbacks.onStateChange || null;
   errorCb = callbacks.onError || null;
 }
 
 export function loadAndPlayYT(videoId: string): boolean {
-  if (!videoId) return false;
-
+  if (!ytPlayer || !ytPlayerReady) {
+    console.warn('[Qaisify] YT.Player not ready — cannot play', { ytPlayer: !!ytPlayer, ytPlayerReady });
+    return false;
+  }
   try {
-    const iframe = ensureHiddenIframe();
-    ytIframeReady = false;
-    pendingVideoId = videoId;
-    iframe.src = buildEmbedUrl(videoId);
-    console.log(`[Qaisify] ▶ Loading hidden YouTube embed: ${videoId}`);
+    ytPlayer.loadVideoById({ videoId, suggestedQuality: 'small' });
+    console.log(`[Qaisify] ▶ Loading YouTube video: ${videoId}`);
     return true;
   } catch (err) {
-    console.error('[Qaisify] loadAndPlayYT error:', err);
+    console.error('[Qaisify] loadVideoById error:', err);
     return false;
   }
 }
 
-export function ytPlay() {
-  postCommand('playVideo');
-}
+export function ytPlay() { try { ytPlayer?.playVideo?.(); } catch {} }
+export function ytPause() { try { ytPlayer?.pauseVideo?.(); } catch {} }
+export function ytStop() { try { ytPlayer?.stopVideo?.(); } catch {} }
+export function ytSeekTo(s: number) { try { ytPlayer?.seekTo?.(s, true); } catch {} }
+export function ytSetVolume(v: number) { try { ytPlayer?.setVolume?.(Math.round(v * 100)); } catch {} }
+export function ytMute() { try { ytPlayer?.mute?.(); } catch {} }
+export function ytUnmute() { try { ytPlayer?.unMute?.(); } catch {} }
+export function ytGetCurrentTime(): number { try { return ytPlayer?.getCurrentTime?.() || 0; } catch { return 0; } }
+export function ytGetDuration(): number { try { return ytPlayer?.getDuration?.() || 0; } catch { return 0; } }
+export function isYTReady(): boolean { return ytPlayerReady && ytPlayer !== null; }
 
-export function ytPause() {
-  postCommand('pauseVideo');
-}
-
-export function ytStop() {
-  postCommand('stopVideo');
-}
-
-export function ytSeekTo(s: number) {
-  postCommand('seekTo', [Math.max(0, s), true]);
-}
-
-export function ytSetVolume(v: number) {
-  postCommand('setVolume', [Math.round(Math.max(0, Math.min(1, v)) * 100)]);
-}
-
-export function ytMute() {
-  postCommand('mute');
-}
-
-export function ytUnmute() {
-  postCommand('unMute');
-}
-
-export function isYTReady(): boolean {
-  return ytIframeReady && ytIframe !== null;
-}
+export const YT_STATES = {
+  UNSTARTED: -1, ENDED: 0, PLAYING: 1,
+  PAUSED: 2, BUFFERING: 3, CUED: 5,
+};
