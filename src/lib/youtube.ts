@@ -103,9 +103,10 @@ function ensureHiddenIframe(): HTMLIFrameElement {
   if (!container) {
     container = document.createElement('div');
     container.id = 'yt-player-container';
+    // Keep in viewport but invisible — browsers block audio on off-screen/tiny iframes
     container.style.cssText =
-      'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;' +
-      'overflow:hidden;pointer-events:none;z-index:-1;opacity:0;';
+      'position:fixed;bottom:0;left:0;width:320px;height:180px;' +
+      'pointer-events:none;z-index:-1;opacity:0.01;';
     document.body.appendChild(container);
   }
 
@@ -117,23 +118,25 @@ function ensureHiddenIframe(): HTMLIFrameElement {
 
   const iframe = document.createElement('iframe');
   iframe.id = 'yt-hidden-embed';
-  iframe.width = '1';
-  iframe.height = '1';
+  iframe.width = '320';
+  iframe.height = '180';
   iframe.allow = 'autoplay; encrypted-media; picture-in-picture';
   iframe.setAttribute('aria-hidden', 'true');
   iframe.setAttribute('tabindex', '-1');
+  iframe.style.cssText = 'border:none;';
   iframe.src = 'about:blank';
 
   iframe.addEventListener('load', () => {
     if (!pendingVideoId) return;
     ytIframeReady = true;
 
-    // Nudge player commands after embed loads
+    // Give embed time to initialize, then nudge playback + volume
     setTimeout(() => {
       postCommand('playVideo');
+      postCommand('unMute');
       readyCb?.();
       pendingVideoId = null;
-    }, 200);
+    }, 500);
   });
 
   iframe.addEventListener('error', () => {
