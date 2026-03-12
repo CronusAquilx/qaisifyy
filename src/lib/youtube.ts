@@ -1,7 +1,7 @@
 const YOUTUBE_API_KEY = 'AIzaSyCc5PPxKMk7-hqMK284HwnMISd13wIF15Y';
 
 const videoCache = new Map<string, string[]>();
-const LS_CACHE_KEY = 'qaisify_yt_cache_v2';
+const LS_CACHE_KEY = 'qaisify_yt_cache_v3';
 
 // Load persisted cache from localStorage
 try {
