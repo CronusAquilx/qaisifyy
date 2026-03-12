@@ -30,11 +30,15 @@ const SearchPage = () => {
   const { playTrack, currentTrack, isPlaying } = usePlayerStore();
 
   useEffect(() => {
-    if (!q) { setResults([]); return; }
+    if (!q) { setResults([]); setAlbums([]); return; }
     setLoading(true);
     const timer = setTimeout(async () => {
-      const tracks = await searchSongs(q, 30);
+      const [tracks, albs] = await Promise.all([
+        searchSongs(q, 30),
+        searchAlbums(q, 6),
+      ]);
       setResults(tracks);
+      setAlbums(albs.filter((a: any) => a.collectionType === 'Album'));
       setLoading(false);
     }, 400);
     return () => clearTimeout(timer);
