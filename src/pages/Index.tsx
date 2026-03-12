@@ -1,7 +1,5 @@
 import { useEffect, useState } from 'react';
 import { searchSongs, type ITunesTrack } from '@/lib/itunes';
-import { getYouTubeApiKeyPreview } from '@/lib/youtube';
-import { usePlayerStore } from '@/stores/playerStore';
 import ContentRow from '@/components/layout/ContentRow';
 
 interface GenreRow {
@@ -35,9 +33,6 @@ const getGreeting = () => {
 const Index = () => {
   const [rows, setRows] = useState<Record<string, ITunesTrack[]>>({});
   const [loading, setLoading] = useState(true);
-  const testYouTube = usePlayerStore((s) => s.testYouTube);
-  const ytStatus = usePlayerStore((s) => s.ytStatus);
-  const ytKeyPreview = getYouTubeApiKeyPreview();
 
   useEffect(() => {
     const fetchAll = async () => {
@@ -63,25 +58,9 @@ const Index = () => {
 
   return (
     <div className="p-4 md:p-6 pb-32">
-      <h1 className="text-2xl md:text-3xl font-bold text-foreground mb-4" style={{ fontFamily: 'Syne' }}>
+      <h1 className="text-2xl md:text-3xl font-bold text-foreground mb-6" style={{ fontFamily: 'Syne' }}>
         {getGreeting()} ✨
       </h1>
-
-      {/* Debug card */}
-      <div className="mb-6 flex items-center gap-2 flex-wrap">
-        <div className="glass-elevated rounded-lg px-3 py-2 text-xs text-muted-foreground">
-          YT Key: <span className="text-foreground font-medium">{ytKeyPreview}</span>
-        </div>
-        <div className="glass-elevated rounded-lg px-3 py-2 text-xs text-muted-foreground">
-          YT Status: <span className="text-foreground font-medium">{ytStatus}</span>
-        </div>
-        <button
-          onClick={testYouTube}
-          className="glass-button rounded-lg px-3 py-2 text-xs font-medium text-foreground transition-opacity hover:opacity-90"
-        >
-          🎵 Test YouTube (Rick Astley)
-        </button>
-      </div>
 
       {genreRows.map((row) => (
         <ContentRow

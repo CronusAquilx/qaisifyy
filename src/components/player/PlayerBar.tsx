@@ -8,7 +8,7 @@ const PlayerBar = () => {
   const {
     currentTrack, isPlaying, currentTime, duration,
     volume, isMuted, shuffle, repeat,
-    isLoadingAudio, usingYouTube, playbackSource,
+    isLoadingAudio, playbackSource,
     togglePlay, nextTrack, prevTrack, seekTo,
     setVolume, toggleMute, toggleShuffle, toggleRepeat,
   } = usePlayerStore();
@@ -38,7 +38,6 @@ const PlayerBar = () => {
                 <p className="text-xs text-muted-foreground truncate">
                   {currentTrack.artistName}
                 </p>
-                {/* Playback source badge */}
                 <AnimatePresence>
                   {playbackSource !== 'none' && (
                     <motion.span
@@ -46,12 +45,12 @@ const PlayerBar = () => {
                       animate={{ opacity: 1, scale: 1 }}
                       exit={{ opacity: 0 }}
                       className={`inline-flex items-center gap-1 mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-medium ${
-                        usingYouTube
+                        playbackSource === 'jamendo'
                           ? 'bg-emerald-500/20 text-emerald-400'
                           : 'bg-orange-500/20 text-orange-400'
                       }`}
                     >
-                      {usingYouTube ? '▶ Full Song' : '⚠ 30s Preview'}
+                      {playbackSource === 'jamendo' ? '▶ Full Song' : '⚠ 30s Preview'}
                     </motion.span>
                   )}
                 </AnimatePresence>

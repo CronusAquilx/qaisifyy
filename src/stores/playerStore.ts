@@ -1,24 +1,9 @@
 import { create } from 'zustand';
 import type { ITunesTrack } from '@/lib/itunes';
-import {
-  initYouTubePlayer,
-  searchYouTubeVideoId,
-  loadAndPlayYT,
-  setYTCallbacks,
-  ytPlay,
-  ytPause,
-  ytStop,
-  ytSeekTo,
-  ytSetVolume,
-  ytMute,
-  ytUnmute,
-  ytGetCurrentTime,
-  ytGetDuration,
-  YT_STATES,
-} from '@/lib/youtube';
+import { searchJamendo } from '@/lib/jamendo';
 
 type RepeatMode = 'off' | 'all' | 'one';
-type PlaybackSource = 'youtube' | 'preview' | 'none';
+type PlaybackSource = 'jamendo' | 'preview' | 'none';
 
 interface PlayerState {
   currentTrack: ITunesTrack | null;
@@ -32,19 +17,13 @@ interface PlayerState {
   shuffle: boolean;
   repeat: RepeatMode;
   isLoadingAudio: boolean;
-  usingYouTube: boolean;
   playbackSource: PlaybackSource;
-  ytStatus: string;
 
   _audioEl: HTMLAudioElement | null;
-  _usingYT: boolean;
-  _ytReady: boolean;
-  _ytInitPromise: Promise<void> | null;
   _intervalId: number | null;
 
   init: () => void;
   playTrack: (track: ITunesTrack, queue?: ITunesTrack[], index?: number) => void;
-  testYouTube: () => void;
   togglePlay: () => void;
   nextTrack: () => void;
   prevTrack: () => void;
@@ -73,89 +52,33 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   shuffle: false,
   repeat: 'off',
   isLoadingAudio: false,
-  usingYouTube: false,
   playbackSource: 'none',
-  ytStatus: 'not initialized',
   _audioEl: null,
-  _usingYT: false,
-  _ytReady: false,
-  _ytInitPromise: null,
   _intervalId: null,
 
   init: () => {
     if (get()._audioEl) return;
-
     const audio = new Audio();
     audio.addEventListener('ended', () => get()._handleTrackEnd());
     audio.addEventListener('loadedmetadata', () => {
       set({ duration: audio.duration, isLoadingAudio: false });
     });
-    audio.volume = get().volume;
-    set({ _audioEl: audio, ytStatus: 'initializing...' });
-
-    setYTCallbacks({
-      onStateChange: (state) => {
-        const s = get();
-        if (!s._usingYT) return;
-
-        if (state === YT_STATES.PLAYING) {
-          const ytDur = ytGetDuration();
-          set({
-            isPlaying: true,
-            isLoadingAudio: false,
-            duration: ytDur > 0 ? ytDur : s.duration,
-            ytStatus: 'playing',
-          });
-          s._startPolling();
-        } else if (state === YT_STATES.PAUSED) {
-          set({ isPlaying: false, ytStatus: 'paused' });
-          s._stopPolling();
-        } else if (state === YT_STATES.ENDED) {
-          set({ ytStatus: 'ended' });
-          s._handleTrackEnd();
-        } else if (state === YT_STATES.BUFFERING) {
-          set({ isLoadingAudio: true, ytStatus: 'buffering' });
-        } else if (state === YT_STATES.UNSTARTED) {
-          set({ ytStatus: 'unstarted' });
-        }
-      },
-      onError: (code) => {
-        console.error('[Qaisify] YT error, falling back to preview. Code:', code);
-        const track = get().currentTrack;
-        set({ ytStatus: `error: ${code}` });
-        if (track?.previewUrl) {
-          const audio = get()._audioEl;
-          if (audio) {
-            set({ _usingYT: false, usingYouTube: false, playbackSource: 'preview' });
-            audio.src = track.previewUrl;
-            audio.play().catch(() => {});
-            set({ isPlaying: true, isLoadingAudio: false });
-            get()._startPolling();
-          }
-        }
-      },
+    audio.addEventListener('error', () => {
+      console.error('[Qaisify] Audio element error');
+      set({ isLoadingAudio: false });
     });
-
-    const promise = initYouTubePlayer()
-      .then(() => {
-        set({ _ytReady: true, ytStatus: 'ready ✅' });
-        console.log('[Qaisify] Store: YT player ready');
-      })
-      .catch((err) => {
-        set({ _ytReady: false, ytStatus: 'init failed ❌', isLoadingAudio: false });
-        console.error('[Qaisify] YT init failed:', err);
-      });
-    set({ _ytInitPromise: promise });
+    audio.volume = get().volume;
+    set({ _audioEl: audio });
   },
 
   playTrack: async (track, queue, index) => {
     const s = get();
-
     s._stopPolling();
-    if (s._usingYT) ytStop();
-    if (s._audioEl) {
-      s._audioEl.pause();
-      s._audioEl.src = '';
+
+    const audio = s._audioEl;
+    if (audio) {
+      audio.pause();
+      audio.src = '';
     }
 
     const newQueue = queue || s.queue;
@@ -170,9 +93,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       duration: trackDuration,
       isLoadingAudio: true,
       isPlaying: false,
-      usingYouTube: false,
       playbackSource: 'none',
-      _usingYT: false,
     });
 
     if ('mediaSession' in navigator) {
@@ -184,44 +105,31 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       });
     }
 
-    // Wait for YT init (with timeout guard)
-    if (!get()._ytReady && get()._ytInitPromise) {
-      set({ ytStatus: 'waiting for init...' });
-      await Promise.race([
-        get()._ytInitPromise,
-        new Promise<void>((resolve) => window.setTimeout(resolve, 13000)),
-      ]);
-      if (!get()._ytReady) {
-        set({ ytStatus: 'init timeout — using preview' });
+    // Try Jamendo first for full-length track
+    const jamendoTrack = await searchJamendo(track.trackName, track.artistName);
+
+    if (jamendoTrack?.audio && audio) {
+      console.log(`[Qaisify] ▶ Playing full track via Jamendo: ${jamendoTrack.name}`);
+      set({ playbackSource: 'jamendo' });
+      audio.src = jamendoTrack.audio;
+      audio.volume = get().volume;
+      audio.muted = get().isMuted;
+      audio.play().catch(() => {});
+      set({ isPlaying: true, isLoadingAudio: false });
+      get()._startPolling();
+
+      // Pre-fetch next
+      const q = get().queue;
+      const qi = get().queueIndex;
+      if (qi < q.length - 1) {
+        searchJamendo(q[qi + 1].trackName, q[qi + 1].artistName).catch(() => {});
       }
+      return;
     }
 
-    const videoId = await searchYouTubeVideoId(track.trackName, track.artistName);
-
-    if (videoId && get()._ytReady) {
-      set({ _usingYT: true, usingYouTube: true, playbackSource: 'youtube', ytStatus: 'loading video...' });
-      ytSetVolume(get().volume);
-      if (get().isMuted) ytMute();
-      else ytUnmute();
-
-      const started = loadAndPlayYT(videoId);
-      if (started) {
-        // Pre-fetch next
-        const q = get().queue;
-        const qi = get().queueIndex;
-        if (qi < q.length - 1) {
-          searchYouTubeVideoId(q[qi + 1].trackName, q[qi + 1].artistName).catch(() => {});
-        }
-        return;
-      }
-
-      set({ ytStatus: 'loadVideo failed' });
-    }
-
-    // Fallback to preview
+    // Fallback to iTunes 30s preview
     console.warn('[Qaisify] Using 30s iTunes preview fallback');
-    set({ _usingYT: false, usingYouTube: false, playbackSource: 'preview', ytStatus: 'using preview' });
-    const audio = get()._audioEl;
+    set({ playbackSource: 'preview' });
     if (audio && track.previewUrl) {
       audio.src = track.previewUrl;
       audio.volume = get().volume;
@@ -234,70 +142,15 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     }
   },
 
-  testYouTube: async () => {
-    const s = get();
-
-    s._stopPolling();
-    if (s._usingYT) ytStop();
-    if (s._audioEl) {
-      s._audioEl.pause();
-      s._audioEl.src = '';
-    }
-
-    if (!s._ytReady && s._ytInitPromise) {
-      set({ ytStatus: 'waiting for init (test)...' });
-      await Promise.race([
-        s._ytInitPromise,
-        new Promise<void>((resolve) => window.setTimeout(resolve, 13000)),
-      ]);
-    }
-
-    if (!get()._ytReady) {
-      set({ ytStatus: 'YT not ready — cannot test' });
-      return;
-    }
-
-    set({
-      currentTrack: null,
-      currentTime: 0,
-      duration: 213,
-      isLoadingAudio: true,
-      isPlaying: false,
-      _usingYT: true,
-      usingYouTube: true,
-      playbackSource: 'youtube',
-      ytStatus: 'test: loading dQw4w9WgXcQ...',
-    });
-
-    ytSetVolume(get().volume);
-    if (get().isMuted) ytMute();
-    else ytUnmute();
-
-    const started = loadAndPlayYT('dQw4w9WgXcQ');
-    if (!started) {
-      set({
-        _usingYT: false,
-        isLoadingAudio: false,
-        isPlaying: false,
-        usingYouTube: false,
-        playbackSource: 'none',
-        ytStatus: 'test: loadVideo failed ❌',
-      });
-    }
-  },
-
   togglePlay: () => {
     const s = get();
-    if (!s.currentTrack && !s._usingYT) return;
-
+    if (!s.currentTrack) return;
     if (s.isPlaying) {
-      if (s._usingYT) ytPause();
-      else s._audioEl?.pause();
+      s._audioEl?.pause();
       set({ isPlaying: false });
       s._stopPolling();
     } else {
-      if (s._usingYT) ytPlay();
-      else s._audioEl?.play().catch(() => {});
+      s._audioEl?.play().catch(() => {});
       set({ isPlaying: true });
       s._startPolling();
     }
@@ -310,7 +163,6 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       set({ isPlaying: false, isLoadingAudio: false });
       return;
     }
-
     let nextIndex: number;
     if (shuffle) {
       nextIndex = Math.floor(Math.random() * queue.length);
@@ -338,17 +190,15 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   seekTo: (time) => {
-    const s = get();
-    if (s._usingYT) ytSeekTo(time);
-    else if (s._audioEl) s._audioEl.currentTime = time;
+    const audio = get()._audioEl;
+    if (audio) audio.currentTime = time;
     set({ currentTime: time });
   },
 
   setVolume: (v) => {
     const clamped = Math.max(0, Math.min(1, v));
-    const s = get();
-    if (s._usingYT) ytSetVolume(clamped);
-    if (s._audioEl) s._audioEl.volume = clamped;
+    const audio = get()._audioEl;
+    if (audio) audio.volume = clamped;
     localStorage.setItem('qaisify_volume', String(clamped));
     set({ volume: clamped, isMuted: clamped === 0 });
   },
@@ -356,7 +206,6 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   toggleMute: () => {
     const s = get();
     const newMuted = !s.isMuted;
-    if (s._usingYT) newMuted ? ytMute() : ytUnmute();
     if (s._audioEl) s._audioEl.muted = newMuted;
     set({ isMuted: newMuted });
   },
@@ -376,16 +225,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const s = get();
     if (s._intervalId) return;
     const id = window.setInterval(() => {
-      const st = get();
-      if (st._usingYT) {
+      const audio = get()._audioEl;
+      if (audio) {
         set({
-          currentTime: ytGetCurrentTime(),
-          duration: ytGetDuration() || st.duration,
-        });
-      } else if (st._audioEl) {
-        set({
-          currentTime: st._audioEl.currentTime,
-          duration: st._audioEl.duration || st.duration,
+          currentTime: audio.currentTime,
+          duration: audio.duration || get().duration,
         });
       }
     }, 250);
