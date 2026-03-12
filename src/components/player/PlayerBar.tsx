@@ -3,6 +3,7 @@ import { upgradeArtwork, formatDurationSeconds } from '@/lib/itunes';
 import { Play, Pause, SkipBack, SkipForward, Shuffle, Repeat, Repeat1, Volume2, VolumeX } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Slider } from '@/components/ui/slider';
+import YouTubeEmbed from '@/components/player/YouTubeEmbed';
 
 const PlayerBar = () => {
   const {
@@ -15,22 +16,34 @@ const PlayerBar = () => {
 
   const artwork = currentTrack ? upgradeArtwork(currentTrack.artworkUrl100, 300) : '';
 
+  const sourceBadge = playbackSource === 'youtube'
+    ? { label: '▶ Full Song (YT)', cls: 'bg-red-500/20 text-red-400' }
+    : playbackSource === 'jamendo'
+    ? { label: '▶ Full Song', cls: 'bg-emerald-500/20 text-emerald-400' }
+    : playbackSource === 'preview'
+    ? { label: '⚠ 30s Preview', cls: 'bg-orange-500/20 text-orange-400' }
+    : null;
+
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 h-[90px] glass-elevated" style={{ borderRadius: '0' }}>
       <div className="flex items-center h-full px-4 gap-4">
-        {/* LEFT - Track info */}
+        {/* LEFT - Track info + YT embed */}
         <div className="flex items-center gap-3 w-[30%] min-w-0">
           {currentTrack ? (
             <>
-              <motion.img
-                key={currentTrack.trackId}
-                src={artwork}
-                alt={currentTrack.trackName}
-                className="w-14 h-14 rounded-lg object-cover flex-shrink-0"
-                initial={{ rotateY: 90, opacity: 0 }}
-                animate={{ rotateY: 0, opacity: 1 }}
-                transition={{ duration: 0.4 }}
-              />
+              {playbackSource === 'youtube' ? (
+                <YouTubeEmbed />
+              ) : (
+                <motion.img
+                  key={currentTrack.trackId}
+                  src={artwork}
+                  alt={currentTrack.trackName}
+                  className="w-14 h-14 rounded-lg object-cover flex-shrink-0"
+                  initial={{ rotateY: 90, opacity: 0 }}
+                  animate={{ rotateY: 0, opacity: 1 }}
+                  transition={{ duration: 0.4 }}
+                />
+              )}
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-foreground truncate">
                   {currentTrack.trackName}
@@ -39,18 +52,14 @@ const PlayerBar = () => {
                   {currentTrack.artistName}
                 </p>
                 <AnimatePresence>
-                  {playbackSource !== 'none' && (
+                  {sourceBadge && (
                     <motion.span
                       initial={{ opacity: 0, scale: 0.8 }}
                       animate={{ opacity: 1, scale: 1 }}
                       exit={{ opacity: 0 }}
-                      className={`inline-flex items-center gap-1 mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-medium ${
-                        playbackSource === 'jamendo'
-                          ? 'bg-emerald-500/20 text-emerald-400'
-                          : 'bg-orange-500/20 text-orange-400'
-                      }`}
+                      className={`inline-flex items-center gap-1 mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-medium ${sourceBadge.cls}`}
                     >
-                      {playbackSource === 'jamendo' ? '▶ Full Song' : '⚠ 30s Preview'}
+                      {sourceBadge.label}
                     </motion.span>
                   )}
                 </AnimatePresence>
@@ -148,6 +157,13 @@ const PlayerBar = () => {
           />
         </div>
       </div>
+
+      {/* Hidden YT embed when not actively showing as thumbnail */}
+      {playbackSource !== 'youtube' && (
+        <div className="absolute -left-[9999px] top-0">
+          <YouTubeEmbed />
+        </div>
+      )}
     </div>
   );
 };
