@@ -11,18 +11,19 @@ declare global {
 const YouTubeEmbed = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
-  const readyRef = useRef(false);
 
   const setYTPlayer = usePlayerStore((s) => s._setYTPlayer);
 
   const initPlayer = useCallback(async () => {
     await loadYouTubeIFrameAPI();
 
+    if (!containerRef.current || !containerRef.current.isConnected) return;
     if (playerRef.current) return;
 
-    playerRef.current = new window.YT.Player(containerRef.current!, {
+    playerRef.current = new window.YT.Player(containerRef.current, {
       height: '40',
       width: '60',
+      host: 'https://www.youtube-nocookie.com',
       playerVars: {
         autoplay: 0,
         controls: 0,
@@ -32,11 +33,11 @@ const YouTubeEmbed = () => {
         showinfo: 0,
         fs: 0,
         playsinline: 1,
+        enablejsapi: 1,
         origin: window.location.origin,
       },
       events: {
         onReady: () => {
-          readyRef.current = true;
           setYTPlayer(playerRef.current);
         },
         onStateChange: (event: any) => {
@@ -67,13 +68,17 @@ const YouTubeEmbed = () => {
   }, [setYTPlayer]);
 
   useEffect(() => {
-    initPlayer();
+    let isCancelled = false;
+    const timer = window.setTimeout(() => {
+      if (!isCancelled) initPlayer();
+    }, 0);
 
     return () => {
+      isCancelled = true;
+      window.clearTimeout(timer);
       if (playerRef.current?.destroy) {
         playerRef.current.destroy();
         playerRef.current = null;
-        readyRef.current = false;
       }
     };
   }, [initPlayer]);
