@@ -1,7 +1,39 @@
 const YOUTUBE_API_KEY = 'AIzaSyCc5PPxKMk7-hqMK284HwnMISd13wIF15Y';
 
 const videoCache = new Map<string, string[]>();
-const LS_CACHE_KEY = 'qaisify_yt_cache_v3';
+const LS_CACHE_KEY = 'qaisify_yt_cache_v4';
+
+/**
+ * Verify videos are actually playable in an embed: embeddable, public,
+ * processed, and not region-blocked for US. Search filters aren't reliable.
+ */
+async function verifyPlayable(ids: string[]): Promise<string[]> {
+  if (ids.length === 0) return [];
+  try {
+    const url =
+      `https://www.googleapis.com/youtube/v3/videos` +
+      `?part=status,contentDetails&id=${ids.join(',')}&key=${YOUTUBE_API_KEY}`;
+    const res = await fetch(url);
+    if (!res.ok) return ids;
+    const data = await res.json();
+    const ok = new Set<string>();
+    for (const v of (data.items ?? []) as any[]) {
+      const status = v?.status ?? {};
+      if (status.embeddable !== true) continue;
+      if (status.privacyStatus !== 'public') continue;
+      if (status.uploadStatus && status.uploadStatus !== 'processed') continue;
+      const rr = v?.contentDetails?.regionRestriction;
+      if (rr?.blocked?.includes('US')) continue;
+      if (rr?.allowed && !rr.allowed.includes('US')) continue;
+      ok.add(v.id);
+    }
+    // preserve original search relevance order
+    return ids.filter((id) => ok.has(id));
+  } catch {
+    return ids;
+  }
+}
+
 
 // Load persisted cache from localStorage
 try {
