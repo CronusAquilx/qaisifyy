@@ -46,20 +46,25 @@ export async function searchYouTubeCandidates(
     const data = await res.json();
     const items = data.items as { id: { videoId?: string }; snippet: { title: string } }[];
 
-    const candidates = Array.from(
+    const rawIds = Array.from(
       new Set(
         (items ?? [])
           .map((item) => item?.id?.videoId)
           .filter((videoId): videoId is string => typeof videoId === 'string' && /^[a-zA-Z0-9_-]{11}$/.test(videoId))
       )
-    ).slice(0, 5);
+    ).slice(0, 10);
+
+    // The search filters lie fairly often — verify each video is really
+    // embeddable, public and not region-blocked before we try to play it.
+    const candidates = (await verifyPlayable(rawIds)).slice(0, 5);
 
     if (candidates.length > 0) {
-      console.log(`[Qaisify] ✅ YouTube match: "${items[0].snippet.title}" (${candidates[0]})`);
+      console.log(`[Qaisify] ✅ YouTube match: ${candidates[0]} (${candidates.length} playable candidates)`);
       videoCache.set(cacheKey, candidates);
       persistCache();
       return candidates;
     }
+
   } catch (err) {
     console.error('[Qaisify] YouTube search error:', err);
   }
