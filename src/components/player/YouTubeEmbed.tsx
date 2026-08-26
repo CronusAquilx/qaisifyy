@@ -23,7 +23,7 @@ const YouTubeEmbed = () => {
     playerRef.current = new window.YT.Player(containerRef.current, {
       height: '40',
       width: '60',
-      host: 'https://www.youtube-nocookie.com',
+      host: 'https://www.youtube.com',
       playerVars: {
         autoplay: 0,
         controls: 0,
@@ -39,6 +39,7 @@ const YouTubeEmbed = () => {
       events: {
         onReady: () => {
           setYTPlayer(playerRef.current);
+          usePlayerStore.setState({ isNetworkBlocked: false });
         },
         onStateChange: (event: any) => {
           const state = usePlayerStore.getState();

@@ -18,6 +18,7 @@ interface PlayerState {
   repeat: RepeatMode;
   isLoadingAudio: boolean;
   playbackSource: PlaybackSource;
+  isNetworkBlocked: boolean;
 
   _audioEl: HTMLAudioElement | null;
   _ytPlayer: any | null;
@@ -60,6 +61,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   repeat: 'off',
   isLoadingAudio: false,
   playbackSource: 'none',
+  isNetworkBlocked: false,
   _audioEl: null,
   _ytPlayer: null,
   _intervalId: null,
@@ -132,20 +134,26 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       return;
     }
 
+    // Filtered networks (school proxies, Securly, etc.) can hold the YouTube
+    // request for ~30s before letting it through — wait that long before failing.
     let ytPlayer = get()._ytPlayer;
     if (!ytPlayer?.loadVideoById) {
-      for (let i = 0; i < 20; i++) {
+      for (let i = 0; i < 300; i++) {
         await wait(100);
         ytPlayer = get()._ytPlayer;
         if (ytPlayer?.loadVideoById) break;
+        // a newer track took over while we were waiting
+        if (get().currentTrack?.trackId !== track.trackId) return;
       }
     }
 
     if (!ytPlayer?.loadVideoById) {
-      console.error('[Qaisify] YouTube player not ready');
-      set({ isPlaying: false, isLoadingAudio: false, playbackSource: 'none' });
+      console.error('[Qaisify] YouTube player not ready (likely blocked by network filter)');
+      set({ isPlaying: false, isLoadingAudio: false, playbackSource: 'none', isNetworkBlocked: true });
       return;
     }
+
+    set({ isNetworkBlocked: false });
 
     const firstVideoId = ytCandidates[0];
     console.log(`[Qaisify] ▶ Playing via YouTube: ${firstVideoId}`);

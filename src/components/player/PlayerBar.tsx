@@ -10,7 +10,7 @@ const PlayerBar = () => {
   const {
     currentTrack, isPlaying, currentTime, duration,
     volume, isMuted, shuffle, repeat,
-    isLoadingAudio, playbackSource,
+    isLoadingAudio, playbackSource, isNetworkBlocked,
     togglePlay, nextTrack, prevTrack, seekTo,
     setVolume, toggleMute, toggleShuffle, toggleRepeat,
   } = usePlayerStore();
@@ -37,7 +37,17 @@ const PlayerBar = () => {
                 </p>
               </button>
               <AnimatePresence>
-                {playbackSource === 'youtube' && (
+                {isNetworkBlocked && (
+                  <motion.span
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="inline-flex items-center gap-1 mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-destructive/20 text-destructive"
+                  >
+                    Your network is blocking YouTube playback
+                  </motion.span>
+                )}
+                {!isNetworkBlocked && playbackSource === 'youtube' && (
                   <motion.span
                     initial={{ opacity: 0, scale: 0.8 }}
                     animate={{ opacity: 1, scale: 1 }}
