@@ -52,16 +52,20 @@ const AppLayout = () => {
           } ${isSidebarCollapsed ? 'md:ml-[72px]' : 'md:ml-[240px]'}`}
         >
           <TopBar />
-          <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="/search" element={<SearchPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/artist/:artistName" element={<ArtistPage />} />
-            <Route path="/album/:collectionId" element={<AlbumPage />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
+          <Suspense fallback={null}>
+            <Routes>
+              <Route path="/" element={<Index />} />
+              <Route path="/search" element={<SearchPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/artist/:artistName" element={<ArtistPage />} />
+              <Route path="/album/:collectionId" element={<AlbumPage />} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </Suspense>
         </main>
-        <RightPanel />
+        <Suspense fallback={null}>
+          <RightPanel />
+        </Suspense>
       </div>
       {/* Desktop player bar */}
       <div className="hidden md:block">
@@ -71,7 +75,9 @@ const AppLayout = () => {
       <MobilePlayerBar />
       <MobileNav />
       {/* Full-screen player overlay */}
-      <FullscreenPlayer />
+      <Suspense fallback={null}>
+        <FullscreenPlayer />
+      </Suspense>
       {/* Direct embed fallback for proxy/unblocker environments */}
       <FallbackEmbed />
     </div>
