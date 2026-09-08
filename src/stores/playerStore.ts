@@ -63,6 +63,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   isLoadingAudio: false,
   playbackSource: 'none',
   isNetworkBlocked: false,
+  fallbackVideoId: null,
   _audioEl: null,
   _ytPlayer: null,
   _intervalId: null,
