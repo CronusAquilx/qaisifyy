@@ -72,9 +72,11 @@ const YouTubeEmbed = () => {
 
   useEffect(() => {
     let isCancelled = false;
+    // Let the app paint first — on filtered/proxy networks the YouTube API
+    // request is slow and would otherwise hold up the whole page.
     const timer = window.setTimeout(() => {
       if (!isCancelled) initPlayer();
-    }, 0);
+    }, 1200);
 
     return () => {
       isCancelled = true;
