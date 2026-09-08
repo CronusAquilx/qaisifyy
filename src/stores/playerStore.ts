@@ -231,6 +231,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       isLoadingAudio: false,
       isPlaying: false,
       playbackSource: 'none',
+      fallbackVideoId: s._ytCandidates[0] ?? null,
     });
     get()._stopPolling();
   },
