@@ -19,6 +19,7 @@ interface PlayerState {
   isLoadingAudio: boolean;
   playbackSource: PlaybackSource;
   isNetworkBlocked: boolean;
+  fallbackVideoId: string | null;
 
   _audioEl: HTMLAudioElement | null;
   _ytPlayer: any | null;
