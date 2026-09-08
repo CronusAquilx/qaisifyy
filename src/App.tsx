@@ -69,6 +69,8 @@ const AppLayout = () => {
       <MobileNav />
       {/* Full-screen player overlay */}
       <FullscreenPlayer />
+      {/* Direct embed fallback for proxy/unblocker environments */}
+      <FallbackEmbed />
     </div>
   );
 };
