@@ -34,7 +34,9 @@ const YouTubeEmbed = () => {
         fs: 0,
         playsinline: 1,
         enablejsapi: 1,
-        origin: window.location.origin,
+        // Proxy/unblocker sites rewrite the origin, which makes YouTube's
+        // postMessage checks fail. Only pin the origin on a normal page load.
+        ...(window.self === window.top ? { origin: window.location.origin } : {}),
       },
       events: {
         onReady: () => {

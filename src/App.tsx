@@ -14,6 +14,7 @@ import MobileNav from '@/components/layout/MobileNav';
 import PlayerBar from '@/components/player/PlayerBar';
 import MobilePlayerBar from '@/components/player/MobilePlayerBar';
 import FullscreenPlayer from '@/components/player/FullscreenPlayer';
+import FallbackEmbed from '@/components/player/FallbackEmbed';
 import RightPanel from '@/components/panels/RightPanel';
 import Index from "./pages/Index";
 import SearchPage from "./pages/SearchPage";
@@ -68,6 +69,8 @@ const AppLayout = () => {
       <MobileNav />
       {/* Full-screen player overlay */}
       <FullscreenPlayer />
+      {/* Direct embed fallback for proxy/unblocker environments */}
+      <FallbackEmbed />
     </div>
   );
 };
