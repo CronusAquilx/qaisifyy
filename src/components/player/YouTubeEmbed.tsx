@@ -34,12 +34,16 @@ const YouTubeEmbed = () => {
         fs: 0,
         playsinline: 1,
         enablejsapi: 1,
-        // Proxy/unblocker sites rewrite the origin, which makes YouTube's
-        // postMessage checks fail. Only pin the origin on a normal page load.
-        ...(window.self === window.top ? { origin: window.location.origin } : {}),
+        // YouTube error 153 is raised when the embed has no client identity.
+        // Always provide both identity values; omitting origin inside a proxy
+        // makes every otherwise-playable candidate fail in the same way.
+        origin: window.location.origin,
+        widget_referrer: window.location.href,
       },
       events: {
         onReady: () => {
+          const iframe = playerRef.current?.getIframe?.() as HTMLIFrameElement | undefined;
+          if (iframe) iframe.referrerPolicy = 'strict-origin-when-cross-origin';
           setYTPlayer(playerRef.current);
           usePlayerStore.setState({ isNetworkBlocked: false });
         },

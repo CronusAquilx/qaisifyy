@@ -1,5 +1,6 @@
 import { usePlayerStore } from '@/stores/playerStore';
-import { X } from 'lucide-react';
+import { ExternalLink, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 /**
  * Some networks / proxy-unblocker sites break the YouTube JS API (postMessage
@@ -12,28 +13,54 @@ const FallbackEmbed = () => {
 
   if (!fallbackVideoId) return null;
 
+  const isInsideProxy = window.self !== window.top;
+  const watchUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(fallbackVideoId)}`;
+  const embedParams = new URLSearchParams({
+    autoplay: '1',
+    playsinline: '1',
+    rel: '0',
+    modestbranding: '1',
+    origin: window.location.origin,
+    widget_referrer: window.location.href,
+  });
+
   return (
     <div className="fixed bottom-[100px] right-4 z-[60] w-[320px] max-w-[90vw] rounded-xl overflow-hidden glass-elevated">
       <div className="flex items-center justify-between px-3 py-2 gap-2">
         <p className="text-[11px] text-muted-foreground truncate">
           Press play here — {currentTrack?.trackName ?? 'track'}
         </p>
-        <button
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
           onClick={() => usePlayerStore.setState({ fallbackVideoId: null })}
-          className="text-muted-foreground hover:text-foreground"
+          className="h-7 w-7 text-muted-foreground hover:text-foreground"
           aria-label="Close player"
         >
           <X size={14} />
-        </button>
+        </Button>
       </div>
-      <iframe
-        key={fallbackVideoId}
-        title="YouTube player"
-        src={`https://www.youtube.com/embed/${fallbackVideoId}?autoplay=1&playsinline=1&rel=0&modestbranding=1`}
-        allow="autoplay; encrypted-media; picture-in-picture"
-        allowFullScreen
-        className="w-full aspect-video border-0"
-      />
+      {isInsideProxy ? (
+        <div className="flex flex-col items-start gap-3 border-t border-border/50 p-4">
+          <p className="text-sm text-foreground">This proxy removed the identity YouTube requires to play embedded videos.</p>
+          <Button asChild size="sm">
+            <a href={watchUrl} target="_blank" rel="noopener noreferrer">
+              <ExternalLink /> Open on YouTube
+            </a>
+          </Button>
+        </div>
+      ) : (
+        <iframe
+          key={fallbackVideoId}
+          title="YouTube player"
+          src={`https://www.youtube.com/embed/${fallbackVideoId}?${embedParams.toString()}`}
+          referrerPolicy="strict-origin-when-cross-origin"
+          allow="autoplay; encrypted-media; picture-in-picture"
+          allowFullScreen
+          className="w-full aspect-video border-0"
+        />
+      )}
     </div>
   );
 };
