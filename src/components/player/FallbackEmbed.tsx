@@ -43,10 +43,12 @@ const FallbackEmbed = () => {
       </div>
       {isInsideProxy ? (
         <div className="flex flex-col items-start gap-3 border-t border-border/50 p-4">
-          <p className="text-sm text-foreground">This proxy removed the identity YouTube requires to play embedded videos.</p>
+          <p className="text-sm text-foreground">
+            This proxy blocked YouTube's video player. Open the song outside the proxy to play it.
+          </p>
           <Button asChild size="sm">
-            <a href={watchUrl} target="_blank" rel="noopener noreferrer">
-              <ExternalLink /> Open on YouTube
+            <a href={watchUrl} target="_top" rel="noreferrer">
+              <ExternalLink /> Open outside proxy
             </a>
           </Button>
         </div>
