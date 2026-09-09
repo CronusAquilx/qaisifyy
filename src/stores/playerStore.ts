@@ -200,6 +200,21 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const s = get();
     if (!s.currentTrack || s.playbackSource !== 'youtube') return;
 
+    // 153 is a missing-client-identity configuration failure. Trying another
+    // video cannot fix it, so avoid making the user wait through every result.
+    if (errorCode === 153) {
+      console.warn('[Qaisify] YouTube embed identity was removed by the network or proxy');
+      set({
+        isLoadingAudio: false,
+        isPlaying: false,
+        playbackSource: 'none',
+        isNetworkBlocked: true,
+        fallbackVideoId: s._ytCandidates[0] ?? null,
+      });
+      get()._stopPolling();
+      return;
+    }
+
     const nextIndex = s._ytCandidateIndex + 1;
     const nextVideoId = s._ytCandidates[nextIndex];
 
