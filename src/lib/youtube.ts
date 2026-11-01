@@ -1,39 +1,7 @@
 const YOUTUBE_API_KEY = 'AIzaSyCc5PPxKMk7-hqMK284HwnMISd13wIF15Y';
 
 const videoCache = new Map<string, string[]>();
-const LS_CACHE_KEY = 'qaisify_yt_cache_v4';
-
-/**
- * Verify videos are actually playable in an embed: embeddable, public,
- * processed, and not region-blocked for US. Search filters aren't reliable.
- */
-async function verifyPlayable(ids: string[]): Promise<string[]> {
-  if (ids.length === 0) return [];
-  try {
-    const url =
-      `https://www.googleapis.com/youtube/v3/videos` +
-      `?part=status,contentDetails&id=${ids.join(',')}&key=${YOUTUBE_API_KEY}`;
-    const res = await fetch(url);
-    if (!res.ok) return ids;
-    const data = await res.json();
-    const ok = new Set<string>();
-    for (const v of (data.items ?? []) as any[]) {
-      const status = v?.status ?? {};
-      if (status.embeddable !== true) continue;
-      if (status.privacyStatus !== 'public') continue;
-      if (status.uploadStatus && status.uploadStatus !== 'processed') continue;
-      const rr = v?.contentDetails?.regionRestriction;
-      if (rr?.blocked?.includes('US')) continue;
-      if (rr?.allowed && !rr.allowed.includes('US')) continue;
-      ok.add(v.id);
-    }
-    // preserve original search relevance order
-    return ids.filter((id) => ok.has(id));
-  } catch {
-    return ids;
-  }
-}
-
+const LS_CACHE_KEY = 'qaisify_yt_cache_v3';
 
 // Load persisted cache from localStorage
 try {
@@ -78,25 +46,20 @@ export async function searchYouTubeCandidates(
     const data = await res.json();
     const items = data.items as { id: { videoId?: string }; snippet: { title: string } }[];
 
-    const rawIds = Array.from(
+    const candidates = Array.from(
       new Set(
         (items ?? [])
           .map((item) => item?.id?.videoId)
           .filter((videoId): videoId is string => typeof videoId === 'string' && /^[a-zA-Z0-9_-]{11}$/.test(videoId))
       )
-    ).slice(0, 10);
-
-    // The search filters lie fairly often — verify each video is really
-    // embeddable, public and not region-blocked before we try to play it.
-    const candidates = (await verifyPlayable(rawIds)).slice(0, 5);
+    ).slice(0, 5);
 
     if (candidates.length > 0) {
-      console.log(`[Qaisify] ✅ YouTube match: ${candidates[0]} (${candidates.length} playable candidates)`);
+      console.log(`[Qaisify] ✅ YouTube match: "${items[0].snippet.title}" (${candidates[0]})`);
       videoCache.set(cacheKey, candidates);
       persistCache();
       return candidates;
     }
-
   } catch (err) {
     console.error('[Qaisify] YouTube search error:', err);
   }

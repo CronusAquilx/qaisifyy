@@ -1,4 +1,4 @@
-import { useEffect, lazy, Suspense } from 'react';
+import { useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -13,18 +13,14 @@ import TopBar from '@/components/layout/TopBar';
 import MobileNav from '@/components/layout/MobileNav';
 import PlayerBar from '@/components/player/PlayerBar';
 import MobilePlayerBar from '@/components/player/MobilePlayerBar';
-import FallbackEmbed from '@/components/player/FallbackEmbed';
+import FullscreenPlayer from '@/components/player/FullscreenPlayer';
+import RightPanel from '@/components/panels/RightPanel';
 import Index from "./pages/Index";
-
-// Split off everything not needed for the first paint — keeps the initial
-// download small on slow/filtered proxy connections.
-const SearchPage = lazy(() => import("./pages/SearchPage"));
-const SettingsPage = lazy(() => import("./pages/SettingsPage"));
-const ArtistPage = lazy(() => import("./pages/ArtistPage"));
-const AlbumPage = lazy(() => import("./pages/AlbumPage"));
-const NotFound = lazy(() => import("./pages/NotFound"));
-const FullscreenPlayer = lazy(() => import('@/components/player/FullscreenPlayer'));
-const RightPanel = lazy(() => import('@/components/panels/RightPanel'));
+import SearchPage from "./pages/SearchPage";
+import SettingsPage from "./pages/SettingsPage";
+import ArtistPage from "./pages/ArtistPage";
+import AlbumPage from "./pages/AlbumPage";
+import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
@@ -52,20 +48,16 @@ const AppLayout = () => {
           } ${isSidebarCollapsed ? 'md:ml-[72px]' : 'md:ml-[240px]'}`}
         >
           <TopBar />
-          <Suspense fallback={null}>
-            <Routes>
-              <Route path="/" element={<Index />} />
-              <Route path="/search" element={<SearchPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/artist/:artistName" element={<ArtistPage />} />
-              <Route path="/album/:collectionId" element={<AlbumPage />} />
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </Suspense>
+          <Routes>
+            <Route path="/" element={<Index />} />
+            <Route path="/search" element={<SearchPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/artist/:artistName" element={<ArtistPage />} />
+            <Route path="/album/:collectionId" element={<AlbumPage />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
         </main>
-        <Suspense fallback={null}>
-          <RightPanel />
-        </Suspense>
+        <RightPanel />
       </div>
       {/* Desktop player bar */}
       <div className="hidden md:block">
@@ -75,11 +67,7 @@ const AppLayout = () => {
       <MobilePlayerBar />
       <MobileNav />
       {/* Full-screen player overlay */}
-      <Suspense fallback={null}>
-        <FullscreenPlayer />
-      </Suspense>
-      {/* Direct embed fallback for proxy/unblocker environments */}
-      <FallbackEmbed />
+      <FullscreenPlayer />
     </div>
   );
 };

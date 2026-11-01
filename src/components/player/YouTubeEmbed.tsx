@@ -34,16 +34,10 @@ const YouTubeEmbed = () => {
         fs: 0,
         playsinline: 1,
         enablejsapi: 1,
-        // YouTube error 153 is raised when the embed has no client identity.
-        // Always provide both identity values; omitting origin inside a proxy
-        // makes every otherwise-playable candidate fail in the same way.
         origin: window.location.origin,
-        widget_referrer: window.location.href,
       },
       events: {
         onReady: () => {
-          const iframe = playerRef.current?.getIframe?.() as HTMLIFrameElement | undefined;
-          if (iframe) iframe.referrerPolicy = 'strict-origin-when-cross-origin';
           setYTPlayer(playerRef.current);
           usePlayerStore.setState({ isNetworkBlocked: false });
         },
@@ -76,11 +70,9 @@ const YouTubeEmbed = () => {
 
   useEffect(() => {
     let isCancelled = false;
-    // Let the app paint first — on filtered/proxy networks the YouTube API
-    // request is slow and would otherwise hold up the whole page.
     const timer = window.setTimeout(() => {
       if (!isCancelled) initPlayer();
-    }, 1200);
+    }, 0);
 
     return () => {
       isCancelled = true;

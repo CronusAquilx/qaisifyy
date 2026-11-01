@@ -19,7 +19,6 @@ interface PlayerState {
   isLoadingAudio: boolean;
   playbackSource: PlaybackSource;
   isNetworkBlocked: boolean;
-  fallbackVideoId: string | null;
 
   _audioEl: HTMLAudioElement | null;
   _ytPlayer: any | null;
@@ -63,7 +62,6 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   isLoadingAudio: false,
   playbackSource: 'none',
   isNetworkBlocked: false,
-  fallbackVideoId: null,
   _audioEl: null,
   _ytPlayer: null,
   _intervalId: null,
@@ -140,7 +138,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     // request for ~30s before letting it through — wait that long before failing.
     let ytPlayer = get()._ytPlayer;
     if (!ytPlayer?.loadVideoById) {
-      for (let i = 0; i < 150; i++) {
+      for (let i = 0; i < 300; i++) {
         await wait(100);
         ytPlayer = get()._ytPlayer;
         if (ytPlayer?.loadVideoById) break;
@@ -150,20 +148,12 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     }
 
     if (!ytPlayer?.loadVideoById) {
-      // Proxy/unblocker sites and strict filters break the YouTube JS API.
-      // Show a plain embed the user can press play on instead.
-      console.warn('[Qaisify] YouTube JS API unavailable — using direct embed fallback');
-      set({
-        isPlaying: false,
-        isLoadingAudio: false,
-        playbackSource: 'none',
-        isNetworkBlocked: false,
-        fallbackVideoId: ytCandidates[0],
-      });
+      console.error('[Qaisify] YouTube player not ready (likely blocked by network filter)');
+      set({ isPlaying: false, isLoadingAudio: false, playbackSource: 'none', isNetworkBlocked: true });
       return;
     }
 
-    set({ isNetworkBlocked: false, fallbackVideoId: null });
+    set({ isNetworkBlocked: false });
 
     const firstVideoId = ytCandidates[0];
     console.log(`[Qaisify] ▶ Playing via YouTube: ${firstVideoId}`);
@@ -200,21 +190,6 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const s = get();
     if (!s.currentTrack || s.playbackSource !== 'youtube') return;
 
-    // 153 is a missing-client-identity configuration failure. Trying another
-    // video cannot fix it, so avoid making the user wait through every result.
-    if (errorCode === 153) {
-      console.warn('[Qaisify] YouTube embed identity was removed by the network or proxy');
-      set({
-        isLoadingAudio: false,
-        isPlaying: false,
-        playbackSource: 'none',
-        isNetworkBlocked: true,
-        fallbackVideoId: s._ytCandidates[0] ?? null,
-      });
-      get()._stopPolling();
-      return;
-    }
-
     const nextIndex = s._ytCandidateIndex + 1;
     const nextVideoId = s._ytCandidates[nextIndex];
 
@@ -246,7 +221,6 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       isLoadingAudio: false,
       isPlaying: false,
       playbackSource: 'none',
-      fallbackVideoId: s._ytCandidates[0] ?? null,
     });
     get()._stopPolling();
   },
